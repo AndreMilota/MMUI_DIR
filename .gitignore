@@ -1,0 +1,14 @@
+# Virtual environment
+.venv/
+
+# PyCharm / IDE files
+.idea/
+*.iml
+
+# Python build junk
+__pycache__/
+*.pyc
+
+# Local databases and secrets
+db/*.db
+.env
