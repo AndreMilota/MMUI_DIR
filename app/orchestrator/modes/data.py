@@ -1,10 +1,10 @@
-"""Data subgraph: placeholder that announces itself and returns a result."""
 from langgraph.graph import StateGraph, END
 from app.state import State
 
 def data_entry(state: State) -> State:
-    print("[DATA] Data subgraph is running.")
-    state["results"] = [{"subgraph": "Data", "message": "Data subgraph ran"}]
+    args = (state.get("plan") or {}).get("args", {})
+    print("[DATA] data_query with args:", args)
+    state["results"] = [{"subgraph": "Data", "received": args}]
     return state
 
 def build_data_app():

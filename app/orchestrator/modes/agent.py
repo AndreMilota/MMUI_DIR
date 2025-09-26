@@ -1,10 +1,10 @@
-"""Agent subgraph: placeholder that announces itself and returns a result."""
 from langgraph.graph import StateGraph, END
 from app.state import State
 
 def agent_entry(state: State) -> State:
-    print("[AGENT] Agent subgraph is running.")
-    state["results"] = [{"subgraph": "Agent", "message": "Agent subgraph ran"}]
+    args = (state.get("plan") or {}).get("args", {})
+    print("[AGENT] agent mode with args:", args)
+    state["results"] = [{"subgraph": "Agent", "received": args}]
     return state
 
 def build_agent_app():

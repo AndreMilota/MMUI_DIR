@@ -1,18 +1,15 @@
-"""Router: map the chosen mode to the next node name."""
+# app/orchestrator/router.py
+"""Map planner 'mode' → graph node name."""
 
 def route(mode: str) -> str:
-    # New subgraphs
-    if mode == "ui":
-        return "UI"
-    if mode == "data":
-        return "Data"
-    if mode == "agent":
-        return "Agent"
+    mapping = {
+        # primary modes
+        "ui_control": "UI",
+        "data_query": "Data",
+        "agent": "Agent",
 
-    # Older demo modes we kept
-    if mode == "write_sql":
-        return "SqlSummary"
-    if mode == "show_covers":
-        return "CoversSummary"
-
-    return "Answer"
+        # optional legacy demo modes (safe to keep or remove)
+        "write_sql": "SqlSummary",
+        "show_covers": "CoversSummary",
+    }
+    return mapping.get(mode, "Agent")  # default fallback

@@ -1,10 +1,10 @@
-"""UI subgraph: placeholder that announces itself and returns a result."""
 from langgraph.graph import StateGraph, END
 from app.state import State
 
 def ui_entry(state: State) -> State:
-    print("[UI] UI subgraph is running.")
-    state["results"] = [{"subgraph": "UI", "message": "UI subgraph ran"}]
+    args = (state.get("plan") or {}).get("args", {})
+    print("[UI] ui_control with args:", args)
+    state["results"] = [{"subgraph": "UI", "received": args}]
     return state
 
 def build_ui_app():
