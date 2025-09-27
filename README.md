@@ -153,3 +153,11 @@ Right-click scripts/print_tree.py → Run 'print_tree'.
 
 To set options, create a Run Configuration for this script and add arguments (for example: . --max-depth 6).
 ::contentReference[oaicite:0]{index=0}
+
+### Graph visualization
+
+To print an ASCII map of the current LangGraph and write a Mermaid diagram to `docs/graph.md`:
+
+```bash
+python -m pip install -r requirements.txt   # includes grandalf
+python scripts/visualize_graph.py
