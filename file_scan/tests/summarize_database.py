@@ -34,7 +34,7 @@ def short_hash_from_hasher(hasher: "hashlib._hashlib.HASH", hex_digits: int = 4)
 
 def get_db_path_from_args(argv: List[str]) -> Path:
     script_dir = Path(__file__).resolve().parent
-    default_db = script_dir / "file_database.sqlite"
+    default_db = script_dir / "../file_database.sqlite"
     if len(argv) >= 2:
         return Path(argv[1])
     return default_db

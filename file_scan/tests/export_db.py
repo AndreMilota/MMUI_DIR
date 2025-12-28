@@ -56,7 +56,7 @@ def export_all_tables(db_path: Path, out_dir: Path, tables: Iterable[str]) -> No
 if __name__ == "__main__":
     # Default DB: file_database.sqlite in the project directory (same folder as this script)
     script_dir = Path(__file__).resolve().parent
-    default_db = script_dir / "file_database.sqlite"
+    default_db = script_dir / "../file_database.sqlite"
 
     if len(sys.argv) >= 2:
         db_path = Path(sys.argv[1])

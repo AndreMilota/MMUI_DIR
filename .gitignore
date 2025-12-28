@@ -12,3 +12,8 @@ __pycache__/
 # Local databases and secrets
 db/*.db
 .env
+
+file_scan/directories.tsv
+file_scan/files.tsv
+file_scan/tests/junk_sanity.txt
+file_scan/volumes.tsv
