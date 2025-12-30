@@ -14,6 +14,20 @@ def get_client() -> OpenAI:
     # Groq is API-compatible with OpenAI chat completions
     return OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
 
+def chat(system_prompt: str, user_prompt: str, temperature: float = 0.0) -> str:
+    """Simple chat completion - returns the model's text response."""
+    client = get_client()
+    resp = client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=temperature,
+    )
+    content = resp.choices[0].message.content or ""
+    return content
+
 def chat_json(system_prompt: str, user_prompt: str, temperature: float = 0.0) -> str:
     """Return the model text (expected to be JSON)."""
     client = get_client()

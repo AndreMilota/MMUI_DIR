@@ -16,3 +16,6 @@ class State(TypedDict, total=False):
     # Query results
     results: Optional[List[Dict[str, Any]]]  # Rows returned from the database
     error: Optional[str]                # Error message if query fails
+
+    # Natural language response
+    response: Optional[str]             # LLM-generated response to user
