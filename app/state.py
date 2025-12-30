@@ -1,20 +1,18 @@
-"""Project state shared between nodes in LangGraph.
+"""State shared between nodes in the LangGraph database query workflow.
 
-We start with a simple TypedDict. Later, we can switch to Pydantic models
-if we want validation.
+This TypedDict defines what flows through the graph as we convert natural
+language queries into SQL and execute them against the file_scan database.
 """
 from typing import TypedDict, Optional, List, Dict, Any
 
 class State(TypedDict, total=False):
-    # Input from the user (or UI)
-    user_text: str                      # last user request in natural language
+    # Input: natural language query from user
+    user_text: str                      # e.g., "Show me all mp3 files in Music folder"
 
-    # Planning (we will fill these in when we add the planner)
-    mode: str                           # e.g., "answer", "write_sql", "show_covers"
-    plan: Dict[str, Any]                # tiny plan JSON from the planner node
+    # SQL generation
+    sql: Optional[str]                  # Generated SQL query
+    sql_params: Optional[Dict[str, Any]]  # Parameters for parameterized queries
 
-    # SQL path (summary and results)
-    sql: Optional[str]                  # last SQL proposed by the model
-    sql_params: Dict[str, Any]          # parameters for that SQL
-    preview: List[Dict[str, Any]]       # small preview rows
-    results: List[Dict[str, Any]]       # final rows or items for the user
+    # Query results
+    results: Optional[List[Dict[str, Any]]]  # Rows returned from the database
+    error: Optional[str]                # Error message if query fails
