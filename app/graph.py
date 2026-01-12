@@ -9,10 +9,27 @@ from langgraph.graph import StateGraph, END
 from app.state import State
 from app.llm.core import chat
 from file_scan.fs_database import LLM_DB_SCHEMA_DOC
+import os
 
-# Database path
-DB_PATH = Path("file_scan") / "file_database.sqlite"
+# python
+def locate_db(filename="file_database.sqlite", folder="file_scan", max_levels=8):
+    """Search upward from cwd and this file's directory for folder/filename."""
+    starts = [Path.cwd(), Path(__file__).resolve().parent]
+    for start in starts:
+        p = start
+        for _ in range(max_levels + 1):
+            candidate = p / folder / filename
+            if candidate.exists():
+                return candidate.resolve()
+            if p.parent == p:
+                break
+            p = p.parent
+    # fallback to relative path (may be used when packaging)
+    fallback = Path(folder) / filename
+    return fallback.resolve() if fallback.exists() else fallback
 
+DB_PATH = locate_db()
+# removed `current_directory` - not needed
 
 def text_to_sql(state: State) -> State:
     """Node 1: Convert natural language query to SQL using LLM."""
