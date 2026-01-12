@@ -101,6 +101,9 @@ def sql_to_text(state: State) -> State:
     sql = state.get("sql", "")
     results = state.get("results", [])
     error = state.get("error")
+    # read the time values
+    now_ns = state.get("now_ns")
+    now_iso = state.get("now_iso")
 
     if error:
         # If there was an error, return a helpful message
