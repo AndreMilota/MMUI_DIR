@@ -9,7 +9,8 @@ from langgraph.graph import StateGraph, END
 from app.state import State
 from app.llm.core import chat
 from file_scan.fs_database import LLM_DB_SCHEMA_DOC
-import os
+from app.utils.time_utils import format_timestamps_in_row, compute_time_boundaries, get_now_ns_and_iso
+from typing import Any, Dict, Iterable, List, Optional
 
 # python
 def locate_db(filename="file_database.sqlite", folder="file_scan", max_levels=8):
@@ -32,36 +33,50 @@ DB_PATH = locate_db()
 # removed `current_directory` - not needed
 
 def text_to_sql(state: State) -> State:
-    """Node 1: Convert natural language query to SQL using LLM."""
-    user_text = state.get("user_text", "")
+    state_keys = state.keys()
+    print("state keys = ", state_keys)
 
+    user_text = state.get("user_text", "")
+    now_ns, now_iso = get_now_ns_and_iso(state)
+
+    bounds = compute_time_boundaries(now_ns)
+
+    # Provide explicit instructions and current time + period boundaries to the LLM
     system_prompt = f"""You are a SQL query generator for a file management database.
 
+Current time (UTC): {now_iso}
+Current time (nanoseconds since epoch): {now_ns}
+
+Period boundaries (UTC / ns):
+- start_of_day: {bounds['start_of_day_iso']} (ns={bounds['start_of_day_ns']})
+- start_of_next_day: {bounds['start_of_next_day_iso']} (ns={bounds['start_of_next_day_ns']})
+- start_of_week: {bounds['start_of_week_iso']} (ns={bounds['start_of_week_ns']})
+- start_of_next_week: {bounds['start_of_next_week_iso']} (ns={bounds['start_of_next_week_ns']})
+- start_of_month: {bounds['start_of_month_iso']} (ns={bounds['start_of_month_ns']})
+- start_of_next_month: {bounds['start_of_next_month_iso']} (ns={bounds['start_of_next_month_ns']})
+
+When the user says phrases like "this week", "last week", "this month", or "today":
+- Use the provided period boundaries to build SQL comparisons on `mtime_ns`.
+- Example for "this week": `WHERE presence_state = 0 AND mtime_ns >= {bounds['start_of_week_ns']} AND mtime_ns < {bounds['start_of_next_week_ns']}`.
+- Example for "today": `WHERE presence_state = 0 AND mtime_ns >= {bounds['start_of_day_ns']} AND mtime_ns < {bounds['start_of_next_day_ns']}`.
+
+When converting relative durations (e.g. "older than 7 days"), you may use arithmetic with `now_ns` (provided above).
 {LLM_DB_SCHEMA_DOC}
 
 Your task:
 1. Read the user's natural language query
 2. Generate a valid SQLite query that answers their question
 3. Return ONLY the SQL query, nothing else - no explanations, no markdown, no extra text
-
-Important:
-- Use proper JOINs between files, directories, and volumes tables
-- Full file paths are: directories.dir_path || '/' || files.name || '.' || files.extension
-- Filter for presence_state = 0 (PRESENT files) unless user asks for historical data
-- For time-based queries, mtime_ns is in nanoseconds since Unix epoch
-- Be careful with NULL values in optional fields
 """
-
     user_prompt = f"Generate SQL for this query: {user_text}"
 
     sql = chat(system_prompt, user_prompt, temperature=0.0)
-    sql = sql.strip().strip('`').strip()  # Remove markdown code fences if present
+    sql = sql.strip().strip('`').strip()
     if sql.lower().startswith('sql\n'):
         sql = sql[4:].strip()
 
     state["sql"] = sql
     return state
-
 
 def execute_sql(state: State) -> State:
     """Node 2: Execute the SQL query against the file_scan database."""
@@ -94,52 +109,59 @@ def execute_sql(state: State) -> State:
 
     return state
 
+def _row_to_dict(row: Any) -> Dict[str, Any]:
+    """Convert a DB row to a plain dict (works for sqlite3.Row, dict, tuple)."""
+    if isinstance(row, dict):
+        return dict(row)
+    try:
+        # sqlite3.Row supports mapping protocol
+        return dict(row)
+    except Exception:
+        pass
+    # fallback for tuple: return indexed keys
+    try:
+        return {str(i): v for i, v in enumerate(row)}
+    except Exception:
+        return {"value": row}
 
-def sql_to_text(state: State) -> State:
-    """Node 3: Convert SQL results to natural language response."""
-    user_text = state.get("user_text", "")
-    sql = state.get("sql", "")
-    results = state.get("results", [])
-    error = state.get("error")
-    # read the time values
-    now_ns = state.get("now_ns")
+def sql_to_text(state: Dict) -> Dict:
+    """
+    Convert SQL results in state['results'] (or state['rows']) into an LLM prompt.
+    Expects `state['now_ns']` (int) if you want relative times. Does not call OS time.
+    """
+    now_ns = state.get("now_ns")  # must be provided by run_query/runner if relative strings needed
     now_iso = state.get("now_iso")
 
-    if error:
-        # If there was an error, return a helpful message
-        system_prompt = "You are a helpful assistant. Explain this database error in simple terms."
-        user_prompt = f"The user asked: '{user_text}'\n\nError: {error}\n\nExplain what went wrong."
-        response = chat(system_prompt, user_prompt, temperature=0.3)
-        state["response"] = response
-        return state
+    rows_source = state.get("results") or state.get("rows") or state.get("sql_results") or []
+    rows: List[Dict[str, Any]] = []
+    for r in rows_source:
+        d = _row_to_dict(r)
+        d_fmt = format_timestamps_in_row(d, now_ns)
+        rows.append(d_fmt)
 
-    system_prompt = """You are a helpful file management assistant.
+    # Build a compact textual representation to feed the LLM.
+    # This keeps the LLM from needing to convert large integers itself.
+    lines = []
+    for i, r in enumerate(rows, start=1):
+        pairs = [f"{k}={v}" for k, v in r.items()]
+        lines.append(f"{i}: " + ", ".join(pairs))
 
-Your task:
-1. Read the user's original question
-2. Read the SQL query that was generated
-3. Read the results from the database
-4. Provide a clear, natural language answer to the user's question
+    current_time_line = f"Current time (from runner): {now_iso}" if now_iso else "Current time: not provided"
+    system_prompt = (
+        "You are a natural-language summarizer for SQL query results.\n"
+        f"{current_time_line}\n"
+        "Rows:\n"
+        + "\n".join(lines)
+        + "\n\n"
+        "Produce a short natural-language answer that summarizes or answers the user's request, "
+        "using the human-readable timestamps shown above. Return only the text answer."
+    )
 
-Be concise and direct. If there are no results, say so clearly.
-If there are many results, summarize them appropriately."""
-
-    user_prompt = f"""User asked: "{user_text}"
-
-SQL query used:
-{sql}
-
-Results ({len(results)} rows):
-{results[:10] if len(results) > 10 else results}
-{"..." if len(results) > 10 else ""}
-
-Provide a natural language answer to the user's question."""
-
-    response = chat(system_prompt, user_prompt, temperature=0.3)
-    state["response"] = response
-
+    user_text = state.get("user_text", "")
+    # call the chat/LLM function (assumes a `chat` function exists in the module)
+    answer = chat(system_prompt, user_text, temperature=0.0)
+    state["response"] = answer.strip()
     return state
-
 
 def build_app():
     """Build and compile the LangGraph workflow."""

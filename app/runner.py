@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import time
 
 from app.graph import build_app
-from app.utills.time_utils import parse_human_time, now_ns_and_iso_from_dt
+from app.utils.time_utils import parse_human_time, now_ns_and_iso_from_dt
 
 
 def run_query(user_text: str, now: Optional[str] = None) -> Dict[str, Any]:
