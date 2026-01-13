@@ -5,8 +5,10 @@ from datetime import datetime, timezone
 from datetime import datetime, timezone
 import time
 from typing import Optional, Tuple, Union
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Iterable, List, Optional
+
+
 
 def parse_human_time(now_str: str) -> datetime:
     """Try to parse common human-readable time formats into a timezone-aware UTC datetime.
@@ -136,6 +138,7 @@ def format_timestamps_in_row(row: Dict[str, Any], now_ns: Optional[int]) -> Dict
                 continue
         out[k] = v
     return out
+
 
 def compute_time_boundaries(now_ns: int) -> dict:
     """

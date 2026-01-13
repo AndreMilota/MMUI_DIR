@@ -19,3 +19,7 @@ class State(TypedDict, total=False):
 
     # Natural language response
     response: Optional[str]             # LLM-generated response to user
+
+    # Current time for relative queries
+    now_ns: Optional[int]               # Current time in nanoseconds since epoch
+    now_iso: Optional[str]              # Current time in ISO 8601 format
