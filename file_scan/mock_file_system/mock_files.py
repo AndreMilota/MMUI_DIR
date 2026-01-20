@@ -25,6 +25,45 @@ from ..fs_database import FSDatabase
 
 class MockFiles:
     def __init__(self, db_path):
-        super(db_path)
-        # see if Anything is mounted under the C Then set this to be the default  Current working directory Otherwise find the drive with the lowest letter
-        if
+        """
+        Initialize the mock file system.
+
+        Args:
+            db_path: Path to the SQLite database file
+        """
+        self.db = FSDatabase(db_path)
+        self.cwd = None  # Current working directory
+
+        # Check if C drive is mounted by looking at the volumes table
+        # A drive is considered "mounted" if its root_path is not NULL/blank
+        cursor = self.db.conn.cursor()
+        cursor.execute("""
+            SELECT root_path
+            FROM volumes
+            WHERE root_path IS NOT NULL
+              AND root_path != ''
+              AND UPPER(SUBSTR(root_path, 1, 1)) = 'C'
+            LIMIT 1
+        """)
+        c_drive = cursor.fetchone()
+
+        if c_drive:
+            # C drive is mounted, use it
+            self.cwd = c_drive['root_path']
+        else:
+            # C drive not mounted, find the lowest lettered drive
+            cursor.execute("""
+                SELECT root_path
+                FROM volumes
+                WHERE root_path IS NOT NULL
+                  AND root_path != ''
+                ORDER BY UPPER(SUBSTR(root_path, 1, 1))
+                LIMIT 1
+            """)
+            lowest_drive = cursor.fetchone()
+
+            if lowest_drive:
+                self.cwd = lowest_drive['root_path']
+            else:
+                # No mounted drives found, default to C:\
+                self.cwd = "C:\\"
