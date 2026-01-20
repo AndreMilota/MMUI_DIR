@@ -34,6 +34,10 @@ class MockFiles:
         self.db = FSDatabase(db_path)
         self.cwd = None  # Current working directory
 
+        # Counters for auto-generating volume defaults
+        self._next_drive_letter = ord('C')  # Start at C, increment to D, E, etc.
+        self._next_serial_number = 0x10000000  # Start at a reasonable hex value
+
         # Check if C drive is mounted by looking at the volumes table
         # A drive is considered "mounted" if its root_path is not NULL/blank
         cursor = self.db.conn.cursor()
@@ -67,3 +71,53 @@ class MockFiles:
             else:
                 # No mounted drives found, default to C:\
                 self.cwd = "C:\\"
+
+    def mount_volume(self, drive_letter=None, label=None, filesystem=None, serial_number=None):
+        """
+        Add/mount a new volume to the mock file system.
+
+        Args:
+            drive_letter: Drive letter (e.g., 'C', 'D'). If None, auto-generates next available.
+            label: Human-readable volume label. If None, defaults to "Volume_X".
+            filesystem: Filesystem type. If None, defaults to "NTFS".
+            serial_number: Hex serial number string. If None, auto-generates.
+
+        Returns:
+            int: The volume ID from the database
+        """
+        # Generate drive letter if not provided
+        if drive_letter is None:
+            drive_letter = chr(self._next_drive_letter)
+            self._next_drive_letter += 1
+        else:
+            drive_letter = drive_letter.upper()
+
+        # Generate serial number if not provided
+        if serial_number is None:
+            serial_number = f"{self._next_serial_number:08X}"
+            self._next_serial_number += 1
+
+        # Set filesystem default
+        if filesystem is None:
+            filesystem = "NTFS"
+
+        # Set label default
+        if label is None:
+            label = f"Volume_{drive_letter}"
+
+        # Build root_path
+        root_path = f"{drive_letter}:\\"
+
+        # Build volume_key
+        volume_key = f"{serial_number}-{filesystem}"
+
+        # Upsert to database
+        volume_id = self.db.upsert_volume(
+            volume_key=volume_key,
+            root_path=root_path,
+            label=label,
+            filesystem=filesystem,
+            serial_number=serial_number
+        )
+
+        return volume_id

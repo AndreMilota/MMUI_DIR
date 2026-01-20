@@ -127,5 +127,126 @@ class TestMockFilesInit(unittest.TestCase):
         mock_fs.db.close()
 
 
+class TestMountVolume(unittest.TestCase):
+    """Test the mount_volume() function"""
+
+    def setUp(self):
+        """Create a temporary database for each test"""
+        self.temp_db = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db')
+        self.temp_db.close()
+        self.db_path = self.temp_db.name
+
+    def tearDown(self):
+        """Clean up temporary database"""
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+
+    def test_mount_volume_with_all_defaults(self):
+        """Test mounting a volume with all default parameters"""
+        mock_fs = MockFiles(self.db_path)
+
+        # Mount first volume with defaults
+        volume_id = mock_fs.mount_volume()
+
+        # Verify it was created
+        cursor = mock_fs.db.conn.cursor()
+        cursor.execute("SELECT * FROM volumes WHERE id = ?", (volume_id,))
+        vol = cursor.fetchone()
+
+        self.assertIsNotNone(vol)
+        self.assertEqual(vol['root_path'], "C:\\")
+        self.assertEqual(vol['label'], "Volume_C")
+        self.assertEqual(vol['filesystem'], "NTFS")
+        self.assertEqual(vol['serial_number'], "10000000")
+        self.assertEqual(vol['volume_key'], "10000000-NTFS")
+
+        mock_fs.db.close()
+
+    def test_mount_multiple_volumes_auto_increment(self):
+        """Test that auto-generated drive letters increment correctly"""
+        mock_fs = MockFiles(self.db_path)
+
+        # Mount three volumes with defaults
+        id1 = mock_fs.mount_volume()
+        id2 = mock_fs.mount_volume()
+        id3 = mock_fs.mount_volume()
+
+        # Check they got C, D, E
+        cursor = mock_fs.db.conn.cursor()
+        cursor.execute("SELECT root_path FROM volumes ORDER BY id")
+        paths = [row['root_path'] for row in cursor.fetchall()]
+
+        self.assertEqual(paths, ["C:\\", "D:\\", "E:\\"])
+
+        mock_fs.db.close()
+
+    def test_mount_volume_with_custom_drive_letter(self):
+        """Test mounting a volume with a specific drive letter"""
+        mock_fs = MockFiles(self.db_path)
+
+        volume_id = mock_fs.mount_volume(drive_letter='F')
+
+        cursor = mock_fs.db.conn.cursor()
+        cursor.execute("SELECT * FROM volumes WHERE id = ?", (volume_id,))
+        vol = cursor.fetchone()
+
+        self.assertEqual(vol['root_path'], "F:\\")
+        self.assertEqual(vol['label'], "Volume_F")
+
+        mock_fs.db.close()
+
+    def test_mount_volume_with_all_custom_params(self):
+        """Test mounting a volume with all custom parameters"""
+        mock_fs = MockFiles(self.db_path)
+
+        volume_id = mock_fs.mount_volume(
+            drive_letter='Z',
+            label='MyData',
+            filesystem='exFAT',
+            serial_number='ABCD1234'
+        )
+
+        cursor = mock_fs.db.conn.cursor()
+        cursor.execute("SELECT * FROM volumes WHERE id = ?", (volume_id,))
+        vol = cursor.fetchone()
+
+        self.assertEqual(vol['root_path'], "Z:\\")
+        self.assertEqual(vol['label'], "MyData")
+        self.assertEqual(vol['filesystem'], "exFAT")
+        self.assertEqual(vol['serial_number'], "ABCD1234")
+        self.assertEqual(vol['volume_key'], "ABCD1234-exFAT")
+
+        mock_fs.db.close()
+
+    def test_mount_volume_serial_numbers_increment(self):
+        """Test that auto-generated serial numbers increment"""
+        mock_fs = MockFiles(self.db_path)
+
+        mock_fs.mount_volume()
+        mock_fs.mount_volume()
+
+        cursor = mock_fs.db.conn.cursor()
+        cursor.execute("SELECT serial_number FROM volumes ORDER BY id")
+        serials = [row['serial_number'] for row in cursor.fetchall()]
+
+        self.assertEqual(serials, ["10000000", "10000001"])
+
+        mock_fs.db.close()
+
+    def test_mount_volume_lowercase_drive_letter_converted(self):
+        """Test that lowercase drive letters are converted to uppercase"""
+        mock_fs = MockFiles(self.db_path)
+
+        volume_id = mock_fs.mount_volume(drive_letter='d')
+
+        cursor = mock_fs.db.conn.cursor()
+        cursor.execute("SELECT root_path FROM volumes WHERE id = ?", (volume_id,))
+        vol = cursor.fetchone()
+
+        self.assertEqual(vol['root_path'], "D:\\")
+
+        mock_fs.db.close()
+
+
 if __name__ == '__main__':
     unittest.main()
