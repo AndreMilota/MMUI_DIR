@@ -21,6 +21,8 @@ To create an fs_database that includes sightings of deleted files, you should:
 
 Mock file objects can be created from an fs_database SQLite file and also stored as one.
 """
+import os
+from pathlib import Path
 from ..fs_database import FSDatabase
 
 class MockFiles:
@@ -121,3 +123,237 @@ class MockFiles:
         )
 
         return volume_id
+
+    def getcwd(self):
+        """
+        Get the current working directory.
+
+        Returns:
+            str: The current working directory path
+        """
+        return self.cwd
+
+    def _normalize_path(self, path):
+        """
+        Normalize a path, handling relative and absolute paths.
+        Converts forward slashes to backslashes for Windows consistency.
+
+        Args:
+            path: Path to normalize (can be relative or absolute)
+
+        Returns:
+            str: Normalized absolute path
+        """
+        # Convert to Windows-style backslashes
+        path = path.replace('/', '\\')
+
+        # If absolute path, return normalized version
+        if len(path) >= 2 and path[1] == ':':
+            # Normalize and ensure trailing backslash for root
+            normalized = os.path.normpath(path)
+            if len(normalized) == 2 and normalized[1] == ':':
+                normalized += '\\'
+            return normalized
+
+        # Relative path - combine with cwd
+        if self.cwd is None:
+            raise ValueError("Current working directory is not set")
+
+        combined = os.path.join(self.cwd, path)
+        return os.path.normpath(combined)
+
+    def _get_volume_id_for_path(self, path):
+        """
+        Get the volume ID for a given path by matching the drive letter.
+
+        Args:
+            path: Absolute path
+
+        Returns:
+            int: Volume ID, or None if not found
+
+        Raises:
+            ValueError: If path doesn't have a drive letter
+        """
+        if len(path) < 2 or path[1] != ':':
+            raise ValueError(f"Path must be absolute with drive letter: {path}")
+
+        drive_letter = path[0].upper()
+        root_path = f"{drive_letter}:\\"
+
+        cursor = self.db.conn.cursor()
+        cursor.execute("""
+            SELECT id FROM volumes
+            WHERE root_path = ?
+        """, (root_path,))
+        row = cursor.fetchone()
+
+        return row['id'] if row else None
+
+    def cd(self, path):
+        """
+        Change the current working directory.
+
+        Args:
+            path: Path to change to (can be relative or absolute)
+
+        Raises:
+            ValueError: If directory doesn't exist in the database
+        """
+        abs_path = self._normalize_path(path)
+
+        # Check if it's a root directory (just the drive)
+        if len(abs_path) == 3 and abs_path[1] == ':' and abs_path[2] == '\\':
+            # Root directory - just check if volume exists
+            volume_id = self._get_volume_id_for_path(abs_path)
+            if volume_id is None:
+                raise ValueError(f"Volume not mounted: {abs_path}")
+            self.cwd = abs_path
+            return
+
+        # Check if directory exists in database
+        volume_id = self._get_volume_id_for_path(abs_path)
+        if volume_id is None:
+            raise ValueError(f"Volume not mounted: {abs_path}")
+
+        # Convert to forward slashes for database lookup
+        dir_path_db = abs_path.replace('\\', '/')
+
+        cursor = self.db.conn.cursor()
+        cursor.execute("""
+            SELECT id FROM directories
+            WHERE volume_id = ? AND dir_path = ?
+        """, (volume_id, dir_path_db))
+        row = cursor.fetchone()
+
+        if row is None:
+            raise ValueError(f"Directory does not exist: {abs_path}")
+
+        self.cwd = abs_path
+
+    def mkdir(self, path, parents=True):
+        """
+        Create a directory (and optionally parent directories).
+
+        Args:
+            path: Path to create (can be relative or absolute)
+            parents: If True, create parent directories as needed (like mkdir -p)
+
+        Raises:
+            ValueError: If parents=False and parent doesn't exist
+        """
+        abs_path = self._normalize_path(path)
+
+        # Get volume ID
+        volume_id = self._get_volume_id_for_path(abs_path)
+        if volume_id is None:
+            raise ValueError(f"Volume not mounted: {abs_path}")
+
+        # Convert to forward slashes for database
+        dir_path_db = abs_path.replace('\\', '/')
+
+        if parents:
+            # Create all parent directories if they don't exist
+            # Split path into parts
+            parts = []
+            current = abs_path
+            while True:
+                parent = os.path.dirname(current)
+                if parent == current:  # Reached root
+                    break
+                parts.append(current)
+                current = parent
+
+            # Create directories from root to target
+            for dir_to_create in reversed(parts):
+                dir_path_db_current = dir_to_create.replace('\\', '/')
+
+                # Check if already exists
+                cursor = self.db.conn.cursor()
+                cursor.execute("""
+                    SELECT id FROM directories
+                    WHERE volume_id = ? AND dir_path = ?
+                """, (volume_id, dir_path_db_current))
+
+                if cursor.fetchone() is None:
+                    # Create it
+                    self.db.upsert_directory(volume_id, dir_path_db_current)
+        else:
+            # Just create the directory (will fail if parent doesn't exist)
+            parent_path = os.path.dirname(abs_path)
+            parent_path_db = parent_path.replace('\\', '/')
+
+            # Check if parent exists (unless it's root)
+            if len(parent_path) > 3:
+                cursor = self.db.conn.cursor()
+                cursor.execute("""
+                    SELECT id FROM directories
+                    WHERE volume_id = ? AND dir_path = ?
+                """, (volume_id, parent_path_db))
+
+                if cursor.fetchone() is None:
+                    raise ValueError(f"Parent directory does not exist: {parent_path}")
+
+            # Create the directory
+            self.db.upsert_directory(volume_id, dir_path_db)
+
+    def rmdir(self, path):
+        """
+        Remove a directory from the database.
+
+        Args:
+            path: Path to remove (can be relative or absolute)
+
+        Raises:
+            ValueError: If directory doesn't exist or is not empty
+        """
+        abs_path = self._normalize_path(path)
+
+        # Get volume ID
+        volume_id = self._get_volume_id_for_path(abs_path)
+        if volume_id is None:
+            raise ValueError(f"Volume not mounted: {abs_path}")
+
+        # Convert to forward slashes for database
+        dir_path_db = abs_path.replace('\\', '/')
+
+        # Check if directory exists
+        cursor = self.db.conn.cursor()
+        cursor.execute("""
+            SELECT id FROM directories
+            WHERE volume_id = ? AND dir_path = ?
+        """, (volume_id, dir_path_db))
+        row = cursor.fetchone()
+
+        if row is None:
+            raise ValueError(f"Directory does not exist: {abs_path}")
+
+        dir_id = row['id']
+
+        # Check if directory has any files
+        cursor.execute("""
+            SELECT COUNT(*) as count FROM files
+            WHERE directory_id = ?
+        """, (dir_id,))
+        file_count = cursor.fetchone()['count']
+
+        if file_count > 0:
+            raise ValueError(f"Directory not empty: {abs_path}")
+
+        # Check if directory has any subdirectories
+        cursor.execute("""
+            SELECT COUNT(*) as count FROM directories
+            WHERE volume_id = ? AND dir_path LIKE ?
+        """, (volume_id, dir_path_db + '/%'))
+        subdir_count = cursor.fetchone()['count']
+
+        if subdir_count > 0:
+            raise ValueError(f"Directory not empty (has subdirectories): {abs_path}")
+
+        # Delete the directory
+        cursor.execute("""
+            DELETE FROM directories
+            WHERE id = ?
+        """, (dir_id,))
+        self.db.conn.commit()
+

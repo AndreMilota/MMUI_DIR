@@ -248,5 +248,149 @@ class TestMountVolume(unittest.TestCase):
         mock_fs.db.close()
 
 
+class TestDirectoryOperations(unittest.TestCase):
+    """Test directory operations: getcwd, cd, mkdir, rmdir"""
+
+    def setUp(self):
+        """Create a temporary database and mock filesystem for each test"""
+        self.temp_db = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db')
+        self.temp_db.close()
+        self.db_path = self.temp_db.name
+        self.mock_fs = MockFiles(self.db_path)
+        # Mount a C drive for testing
+        self.mock_fs.mount_volume(drive_letter='C')
+
+    def tearDown(self):
+        """Clean up temporary database"""
+        self.mock_fs.db.close()
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+
+    def test_getcwd(self):
+        """Test getting current working directory"""
+        cwd = self.mock_fs.getcwd()
+        self.assertEqual(cwd, "C:\\")
+
+    def test_mkdir_absolute_path(self):
+        """Test creating a directory with absolute path"""
+        self.mock_fs.mkdir("C:\\Users")
+
+        # Verify it exists in database
+        cursor = self.mock_fs.db.conn.cursor()
+        cursor.execute("""
+            SELECT * FROM directories WHERE dir_path = ?
+        """, ("C:/Users",))
+        self.assertIsNotNone(cursor.fetchone())
+
+    def test_mkdir_with_parents(self):
+        """Test creating nested directories (mkdir -p behavior)"""
+        self.mock_fs.mkdir("C:\\Users\\Bob\\Documents")
+
+        # Verify all directories were created
+        cursor = self.mock_fs.db.conn.cursor()
+        cursor.execute("SELECT dir_path FROM directories ORDER BY dir_path")
+        paths = [row['dir_path'] for row in cursor.fetchall()]
+
+        self.assertIn("C:/Users", paths)
+        self.assertIn("C:/Users/Bob", paths)
+        self.assertIn("C:/Users/Bob/Documents", paths)
+
+    def test_mkdir_relative_path(self):
+        """Test creating directory with relative path"""
+        self.mock_fs.cd("C:\\")
+        self.mock_fs.mkdir("Users")
+
+        cursor = self.mock_fs.db.conn.cursor()
+        cursor.execute("SELECT * FROM directories WHERE dir_path = ?", ("C:/Users",))
+        self.assertIsNotNone(cursor.fetchone())
+
+    def test_mkdir_without_parents_fails(self):
+        """Test that mkdir without parents fails if parent doesn't exist"""
+        with self.assertRaises(ValueError):
+            self.mock_fs.mkdir("C:\\Users\\Bob\\Documents", parents=False)
+
+    def test_cd_absolute_path(self):
+        """Test changing to absolute path"""
+        self.mock_fs.mkdir("C:\\Users\\Bob")
+        self.mock_fs.cd("C:\\Users\\Bob")
+        self.assertEqual(self.mock_fs.getcwd(), "C:\\Users\\Bob")
+
+    def test_cd_relative_path(self):
+        """Test changing to relative path"""
+        self.mock_fs.mkdir("C:\\Users\\Bob")
+        self.mock_fs.cd("C:\\")
+        self.mock_fs.cd("Users")
+        self.assertEqual(self.mock_fs.getcwd(), "C:\\Users")
+
+    def test_cd_parent_directory(self):
+        """Test changing to parent directory using .."""
+        self.mock_fs.mkdir("C:\\Users\\Bob")
+        self.mock_fs.cd("C:\\Users\\Bob")
+        self.mock_fs.cd("..")
+        self.assertEqual(self.mock_fs.getcwd(), "C:\\Users")
+
+    def test_cd_to_root(self):
+        """Test changing to root directory"""
+        self.mock_fs.mkdir("C:\\Users")
+        self.mock_fs.cd("C:\\Users")
+        self.mock_fs.cd("C:\\")
+        self.assertEqual(self.mock_fs.getcwd(), "C:\\")
+
+    def test_cd_nonexistent_directory_fails(self):
+        """Test that cd to non-existent directory fails"""
+        with self.assertRaises(ValueError):
+            self.mock_fs.cd("C:\\NonExistent")
+
+    def test_cd_with_forward_slashes(self):
+        """Test that cd handles forward slashes"""
+        self.mock_fs.mkdir("C:\\Users\\Bob")
+        self.mock_fs.cd("C:/Users/Bob")
+        self.assertEqual(self.mock_fs.getcwd(), "C:\\Users\\Bob")
+
+    def test_rmdir_empty_directory(self):
+        """Test removing an empty directory"""
+        self.mock_fs.mkdir("C:\\Temp")
+        self.mock_fs.rmdir("C:\\Temp")
+
+        # Verify it's gone
+        cursor = self.mock_fs.db.conn.cursor()
+        cursor.execute("SELECT * FROM directories WHERE dir_path = ?", ("C:/Temp",))
+        self.assertIsNone(cursor.fetchone())
+
+    def test_rmdir_nonempty_directory_fails(self):
+        """Test that removing non-empty directory fails"""
+        self.mock_fs.mkdir("C:\\Users\\Bob")
+
+        # Try to remove parent - should fail because it has subdirectory
+        with self.assertRaises(ValueError):
+            self.mock_fs.rmdir("C:\\Users")
+
+    def test_rmdir_relative_path(self):
+        """Test removing directory with relative path"""
+        self.mock_fs.mkdir("C:\\Temp")
+        self.mock_fs.cd("C:\\")
+        self.mock_fs.rmdir("Temp")
+
+        cursor = self.mock_fs.db.conn.cursor()
+        cursor.execute("SELECT * FROM directories WHERE dir_path = ?", ("C:/Temp",))
+        self.assertIsNone(cursor.fetchone())
+
+    def test_rmdir_nonexistent_fails(self):
+        """Test that removing non-existent directory fails"""
+        with self.assertRaises(ValueError):
+            self.mock_fs.rmdir("C:\\NonExistent")
+
+    def test_mkdir_already_exists(self):
+        """Test that mkdir on existing directory is idempotent"""
+        self.mock_fs.mkdir("C:\\Users")
+        self.mock_fs.mkdir("C:\\Users")  # Should not error
+
+        # Should still only have one entry
+        cursor = self.mock_fs.db.conn.cursor()
+        cursor.execute("SELECT COUNT(*) as count FROM directories WHERE dir_path = ?", ("C:/Users",))
+        count = cursor.fetchone()['count']
+        self.assertEqual(count, 1)
+
+
 if __name__ == '__main__':
     unittest.main()
