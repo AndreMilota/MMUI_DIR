@@ -87,6 +87,11 @@ MMUI_DIR/
     tools/
       __init__.py
       sql.py              # tiny helper for SQLite (db/files.db)
+  file_scan/
+    fs_database.py        # SQLite-backed file tracking database
+    mock_file_system/
+      mock_files.py       # mock file system for testing
+      file_record_builder.py  # file record construction with defaults
   db/
     files.db              # created by db_smoketest.py
     memory/               # per-session JSON memory files
@@ -102,6 +107,104 @@ MMUI_DIR/
   .gitignore
   requirements.txt
   README.md
+```
+
+---
+
+## Mock File System (for testing)
+
+The `file_scan/mock_file_system` module provides a mock file system that wraps `FSDatabase` for testing purposes. It lets you create realistic file system states in a SQLite database without touching the real file system.
+
+### Key difference from a real file system
+
+The file tracking database retains records of all files it has seen, even after deletion. This lets you simulate scenarios like:
+1. File existed, was scanned into the database
+2. File was deleted
+3. Re-scan shows the file as "missing" but the record remains
+
+### Basic usage
+
+```python
+from file_scan.mock_file_system.mock_files import MockFiles
+
+# Create a mock file system (uses an in-memory or file-based SQLite DB)
+mock_fs = MockFiles(":memory:")  # or provide a path like "test.db"
+
+# Mount a volume (auto-generates drive letter C, D, E... and serial numbers)
+mock_fs.mount_volume()                          # Creates C:\
+mock_fs.mount_volume()                          # Creates D:\
+mock_fs.mount_volume(drive_letter='Z', label='USB')  # Creates Z:\
+
+# Directory operations
+mock_fs.mkdir("C:\\Users\\Bob\\Documents")      # Creates all parent dirs
+mock_fs.cd("C:\\Users\\Bob")                    # Change directory
+print(mock_fs.getcwd())                         # "C:\Users\Bob"
+mock_fs.ls_dir()                                # List subdirectories
+
+# Create files
+mock_fs.save("report.txt", size_bytes=1024)
+mock_fs.save("photo.jpg", size_bytes=2048000)
+mock_fs.ls()                                    # List files in cwd
+```
+
+### File defaults (sticky parameters)
+
+When you specify a parameter, it becomes the new default for subsequent files:
+
+```python
+# Set defaults explicitly
+mock_fs.set_file_defaults(extension='txt', size_bytes=1024)
+
+# Or let them "stick" from previous save() calls
+mock_fs.save("first.pdf", size_bytes=2048)
+mock_fs.save("second")      # Uses extension='pdf', size_bytes=2048
+mock_fs.save("third")       # Same defaults continue
+```
+
+### Human-readable timestamps
+
+Time parameters accept multiple formats:
+
+```python
+from datetime import datetime, date, time
+
+# ISO format strings
+mock_fs.save("log.txt", mtime="2024-01-15 10:30:00")
+mock_fs.save("log.txt", mtime="2024-01-15")        # Uses default time (00:00:00)
+mock_fs.save("log.txt", mtime="10:30:00")          # Uses default date (2000-01-01)
+
+# Python datetime objects
+mock_fs.save("log.txt", mtime=datetime(2024, 1, 15, 10, 30))
+mock_fs.save("log.txt", mtime=date(2024, 1, 15))
+mock_fs.save("log.txt", mtime=time(10, 30))
+
+# Set default date/time for partial specifications
+mock_fs.set_file_defaults(default_date="2024-06-01", default_time="12:00:00")
+```
+
+### Media and tag metadata
+
+Files can include media metadata and ID3-style tags:
+
+```python
+mock_fs.save(
+    "song.mp3",
+    duration=180.5,
+    bitrate=320000,
+    codec='mp3',
+    sample_rate=44100,
+    channels=2,
+    tag_title="My Song",
+    tag_artist="Artist Name",
+    tag_album="Album Title"
+)
+```
+
+### Running the tests
+
+```powershell
+python -m pytest file_scan/mock_file_system/test_mocks.py -v
+python -m pytest file_scan/mock_file_system/test_file_record_builder.py -v
 ```
 
 ---

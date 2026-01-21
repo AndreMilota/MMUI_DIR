@@ -392,5 +392,332 @@ class TestDirectoryOperations(unittest.TestCase):
         self.assertEqual(count, 1)
 
 
+class TestSetFileDefaults(unittest.TestCase):
+    """Test the set_file_defaults() function"""
+
+    def setUp(self):
+        """Create a temporary database for each test"""
+        self.temp_db = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db')
+        self.temp_db.close()
+        self.db_path = self.temp_db.name
+        self.mock_fs = MockFiles(self.db_path)
+        self.mock_fs.mount_volume(drive_letter='C')
+
+    def tearDown(self):
+        """Clean up temporary database"""
+        self.mock_fs.db.close()
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+
+    def test_set_extension_default(self):
+        """Test setting extension default"""
+        self.mock_fs.set_file_defaults(extension='txt')
+        defaults = self.mock_fs.get_file_defaults()
+        self.assertEqual(defaults['extension'], 'txt')
+
+    def test_set_size_default(self):
+        """Test setting size_bytes default"""
+        self.mock_fs.set_file_defaults(size_bytes=1024)
+        defaults = self.mock_fs.get_file_defaults()
+        self.assertEqual(defaults['size_bytes'], 1024)
+
+    def test_set_multiple_defaults(self):
+        """Test setting multiple defaults at once"""
+        self.mock_fs.set_file_defaults(
+            extension='doc',
+            size_bytes=2048,
+            readonly=1
+        )
+        defaults = self.mock_fs.get_file_defaults()
+        self.assertEqual(defaults['extension'], 'doc')
+        self.assertEqual(defaults['size_bytes'], 2048)
+        self.assertEqual(defaults['readonly'], 1)
+
+    def test_set_invalid_parameter_raises(self):
+        """Test that setting unknown parameter raises ValueError"""
+        with self.assertRaises(ValueError):
+            self.mock_fs.set_file_defaults(invalid_param=123)
+
+
+class TestSaveFunction(unittest.TestCase):
+    """Test the save() function"""
+
+    def setUp(self):
+        """Create a temporary database for each test"""
+        self.temp_db = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db')
+        self.temp_db.close()
+        self.db_path = self.temp_db.name
+        self.mock_fs = MockFiles(self.db_path)
+        self.mock_fs.mount_volume(drive_letter='C')
+
+    def tearDown(self):
+        """Clean up temporary database"""
+        self.mock_fs.db.close()
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+
+    def test_save_file_with_extension_in_name(self):
+        """Test saving a file with extension in the name"""
+        file_id = self.mock_fs.save("document.txt")
+        self.assertIsInstance(file_id, int)
+        self.assertGreater(file_id, 0)
+
+    def test_save_file_creates_in_database(self):
+        """Test that save creates the file in the database"""
+        self.mock_fs.save("test.txt", size_bytes=1024)
+
+        files = self.mock_fs.ls()
+        self.assertEqual(len(files), 1)
+        self.assertEqual(files[0]['name'], 'test')
+        self.assertEqual(files[0]['extension'], 'txt')
+        self.assertEqual(files[0]['size_bytes'], 1024)
+
+    def test_save_file_without_extension_uses_default(self):
+        """Test that files without extension use the default"""
+        self.mock_fs.set_file_defaults(extension='md')
+        self.mock_fs.save("readme")
+
+        files = self.mock_fs.ls()
+        self.assertEqual(files[0]['extension'], 'md')
+
+    def test_save_with_explicit_extension(self):
+        """Test saving with explicit extension parameter"""
+        self.mock_fs.save("myfile", extension='pdf')
+
+        files = self.mock_fs.ls()
+        self.assertEqual(files[0]['extension'], 'pdf')
+
+    def test_save_with_empty_extension(self):
+        """Test saving with explicitly no extension"""
+        self.mock_fs.set_file_defaults(extension='txt')
+        self.mock_fs.save("Makefile", extension='')
+
+        files = self.mock_fs.ls()
+        self.assertEqual(files[0]['name'], 'Makefile')
+        self.assertEqual(files[0]['extension'], '')
+
+    def test_save_extension_in_name_and_param_raises(self):
+        """Test that extension in name AND as parameter raises error"""
+        with self.assertRaises(ValueError):
+            self.mock_fs.save("document.txt", extension='pdf')
+
+    def test_save_updates_extension_default(self):
+        """Test that save with extension updates the default"""
+        self.mock_fs.save("first.pdf")
+        self.mock_fs.save("second")  # Should use pdf as default
+
+        files = self.mock_fs.ls()
+        pdf_files = [f for f in files if f['extension'] == 'pdf']
+        self.assertEqual(len(pdf_files), 2)
+
+    def test_save_updates_size_default(self):
+        """Test that save with size_bytes updates the default"""
+        self.mock_fs.save("file1.txt", size_bytes=2048)
+        self.mock_fs.save("file2.txt")  # Should use 2048 as default
+
+        files = self.mock_fs.ls()
+        self.assertEqual(files[0]['size_bytes'], 2048)
+        self.assertEqual(files[1]['size_bytes'], 2048)
+
+    def test_save_with_human_readable_time(self):
+        """Test saving with human-readable mtime"""
+        self.mock_fs.save("test.txt", mtime="2024-01-15 10:30:00")
+
+        files = self.mock_fs.ls()
+        self.assertIsNotNone(files[0]['mtime_ns'])
+        self.assertIsInstance(files[0]['mtime_ns'], int)
+
+    def test_save_in_subdirectory(self):
+        """Test saving file after cd to subdirectory"""
+        self.mock_fs.mkdir("C:\\Users\\Test")
+        self.mock_fs.cd("C:\\Users\\Test")
+        self.mock_fs.save("myfile.txt")
+
+        files = self.mock_fs.ls()
+        self.assertEqual(len(files), 1)
+
+    def test_save_multiple_files(self):
+        """Test saving multiple files"""
+        self.mock_fs.save("file1.txt")
+        self.mock_fs.save("file2.txt")
+        self.mock_fs.save("file3.txt")
+
+        files = self.mock_fs.ls()
+        self.assertEqual(len(files), 3)
+
+    def test_save_with_media_fields(self):
+        """Test saving with media metadata"""
+        self.mock_fs.save(
+            "song.mp3",
+            duration=180.5,
+            bitrate=320000,
+            codec='mp3'
+        )
+
+        files = self.mock_fs.ls()
+        self.assertEqual(files[0]['duration'], 180.5)
+        self.assertEqual(files[0]['bitrate'], 320000)
+        self.assertEqual(files[0]['codec'], 'mp3')
+
+    def test_save_with_tag_fields(self):
+        """Test saving with tag metadata"""
+        self.mock_fs.save(
+            "song.mp3",
+            tag_title="My Song",
+            tag_artist="Artist Name"
+        )
+
+        files = self.mock_fs.ls()
+        self.assertEqual(files[0]['tag_title'], "My Song")
+        self.assertEqual(files[0]['tag_artist'], "Artist Name")
+
+
+class TestLsFunction(unittest.TestCase):
+    """Test the ls() function"""
+
+    def setUp(self):
+        """Create a temporary database for each test"""
+        self.temp_db = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db')
+        self.temp_db.close()
+        self.db_path = self.temp_db.name
+        self.mock_fs = MockFiles(self.db_path)
+        self.mock_fs.mount_volume(drive_letter='C')
+
+    def tearDown(self):
+        """Clean up temporary database"""
+        self.mock_fs.db.close()
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+
+    def test_ls_empty_directory(self):
+        """Test ls on empty directory"""
+        files = self.mock_fs.ls()
+        self.assertEqual(files, [])
+
+    def test_ls_returns_all_files(self):
+        """Test that ls returns all files in directory"""
+        self.mock_fs.save("file1.txt")
+        self.mock_fs.save("file2.txt")
+        self.mock_fs.save("file3.doc")
+
+        files = self.mock_fs.ls()
+        self.assertEqual(len(files), 3)
+
+    def test_ls_returns_file_info(self):
+        """Test that ls returns complete file information"""
+        self.mock_fs.save("test.txt", size_bytes=1024, readonly=1)
+
+        files = self.mock_fs.ls()
+        self.assertEqual(len(files), 1)
+        file = files[0]
+        self.assertEqual(file['name'], 'test')
+        self.assertEqual(file['extension'], 'txt')
+        self.assertEqual(file['size_bytes'], 1024)
+        self.assertEqual(file['readonly'], 1)
+
+    def test_ls_does_not_include_directories(self):
+        """Test that ls only returns files, not directories"""
+        self.mock_fs.save("file.txt")
+        self.mock_fs.mkdir("C:\\Subdir")
+
+        files = self.mock_fs.ls()
+        self.assertEqual(len(files), 1)
+        self.assertEqual(files[0]['name'], 'file')
+
+    def test_ls_after_cd(self):
+        """Test ls after changing directory"""
+        self.mock_fs.save("root_file.txt")
+        self.mock_fs.mkdir("C:\\Users")
+        self.mock_fs.cd("C:\\Users")
+        self.mock_fs.save("users_file.txt")
+
+        files = self.mock_fs.ls()
+        self.assertEqual(len(files), 1)
+        self.assertEqual(files[0]['name'], 'users_file')
+
+    def test_ls_sorted_by_name(self):
+        """Test that ls results are sorted by name"""
+        self.mock_fs.save("charlie.txt")
+        self.mock_fs.save("alpha.txt")
+        self.mock_fs.save("bravo.txt")
+
+        files = self.mock_fs.ls()
+        names = [f['name'] for f in files]
+        self.assertEqual(names, ['alpha', 'bravo', 'charlie'])
+
+
+class TestLsDirFunction(unittest.TestCase):
+    """Test the ls_dir() function"""
+
+    def setUp(self):
+        """Create a temporary database for each test"""
+        self.temp_db = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db')
+        self.temp_db.close()
+        self.db_path = self.temp_db.name
+        self.mock_fs = MockFiles(self.db_path)
+        self.mock_fs.mount_volume(drive_letter='C')
+
+    def tearDown(self):
+        """Clean up temporary database"""
+        self.mock_fs.db.close()
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+
+    def test_ls_dir_empty(self):
+        """Test ls_dir on directory with no subdirectories"""
+        subdirs = self.mock_fs.ls_dir()
+        self.assertEqual(subdirs, [])
+
+    def test_ls_dir_returns_immediate_children(self):
+        """Test that ls_dir returns immediate subdirectories"""
+        self.mock_fs.mkdir("C:\\Users")
+        self.mock_fs.mkdir("C:\\Windows")
+        self.mock_fs.mkdir("C:\\Program Files")
+
+        subdirs = self.mock_fs.ls_dir()
+        self.assertEqual(len(subdirs), 3)
+        self.assertIn('Users', subdirs)
+        self.assertIn('Windows', subdirs)
+        self.assertIn('Program Files', subdirs)
+
+    def test_ls_dir_not_recursive(self):
+        """Test that ls_dir is not recursive"""
+        self.mock_fs.mkdir("C:\\Users")
+        self.mock_fs.mkdir("C:\\Users\\Bob")
+        self.mock_fs.mkdir("C:\\Users\\Bob\\Documents")
+
+        subdirs = self.mock_fs.ls_dir()
+        self.assertEqual(subdirs, ['Users'])
+
+    def test_ls_dir_after_cd(self):
+        """Test ls_dir after changing directory"""
+        self.mock_fs.mkdir("C:\\Users")
+        self.mock_fs.mkdir("C:\\Users\\Bob")
+        self.mock_fs.mkdir("C:\\Users\\Alice")
+        self.mock_fs.cd("C:\\Users")
+
+        subdirs = self.mock_fs.ls_dir()
+        self.assertEqual(len(subdirs), 2)
+        self.assertIn('Bob', subdirs)
+        self.assertIn('Alice', subdirs)
+
+    def test_ls_dir_does_not_include_files(self):
+        """Test that ls_dir only returns directories, not files"""
+        self.mock_fs.mkdir("C:\\Subdir")
+        self.mock_fs.save("file.txt")
+
+        subdirs = self.mock_fs.ls_dir()
+        self.assertEqual(subdirs, ['Subdir'])
+
+    def test_ls_dir_sorted(self):
+        """Test that ls_dir results are sorted"""
+        self.mock_fs.mkdir("C:\\Charlie")
+        self.mock_fs.mkdir("C:\\Alpha")
+        self.mock_fs.mkdir("C:\\Bravo")
+
+        subdirs = self.mock_fs.ls_dir()
+        self.assertEqual(subdirs, ['Alpha', 'Bravo', 'Charlie'])
+
+
 if __name__ == '__main__':
     unittest.main()
