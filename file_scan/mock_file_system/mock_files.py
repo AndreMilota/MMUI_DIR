@@ -22,8 +22,9 @@ To create an fs_database that includes sightings of deleted files, you should:
 Mock file objects can be created from an fs_database SQLite file and also stored as one.
 """
 import os
+import fnmatch
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from ..fs_database import FSDatabase
 from .file_record_builder import FileRecordBuilder
 
@@ -621,3 +622,755 @@ class MockFiles:
                 subdirs.append(subdir_name)
 
         return subdirs
+
+    # =========================================================================
+    # Helper Methods
+    # =========================================================================
+
+    def _resolve_path(self, path: str) -> Tuple[int, str, str, str]:
+        """
+        Parse a full path into components.
+
+        Args:
+            path: Path to parse (can be relative or absolute)
+
+        Returns:
+            tuple: (volume_id, dir_path_db, filename, extension)
+                - volume_id: ID of the volume
+                - dir_path_db: Directory path in database format (forward slashes)
+                - filename: Name without extension
+                - extension: File extension (lowercase, no dot)
+
+        Raises:
+            ValueError: If volume is not mounted or path is invalid
+        """
+        abs_path = self._normalize_path(path)
+        volume_id = self._get_volume_id_for_path(abs_path)
+
+        if volume_id is None:
+            raise ValueError(f"Volume not mounted: {abs_path}")
+
+        # Split directory from filename
+        dir_part = os.path.dirname(abs_path)
+        filename_full = os.path.basename(abs_path)
+
+        # Parse filename and extension
+        if '.' in filename_full and not filename_full.startswith('.'):
+            parts = filename_full.rsplit('.', 1)
+            filename = parts[0]
+            extension = parts[1].lower()
+        elif filename_full.startswith('.') and '.' in filename_full[1:]:
+            # Hidden file with extension like .config.json
+            parts = filename_full.rsplit('.', 1)
+            filename = parts[0]
+            extension = parts[1].lower()
+        else:
+            filename = filename_full
+            extension = ''
+
+        # Convert directory to database format
+        dir_path_db = dir_part.replace('\\', '/')
+
+        return volume_id, dir_path_db, filename, extension
+
+    def _get_file_id(self, path: str) -> Optional[int]:
+        """
+        Resolve path to file ID in database.
+
+        Args:
+            path: Path to the file (can be relative or absolute)
+
+        Returns:
+            int: File ID if found, None if file doesn't exist
+        """
+        try:
+            volume_id, dir_path_db, filename, extension = self._resolve_path(path)
+        except ValueError:
+            return None
+
+        cursor = self.db.conn.cursor()
+
+        # Get directory ID
+        cursor.execute("""
+            SELECT id FROM directories
+            WHERE volume_id = ? AND dir_path = ?
+        """, (volume_id, dir_path_db))
+        dir_row = cursor.fetchone()
+
+        if dir_row is None:
+            return None
+
+        # Get file ID
+        cursor.execute("""
+            SELECT id FROM files
+            WHERE directory_id = ? AND name = ? AND extension = ?
+        """, (dir_row['id'], filename, extension))
+        file_row = cursor.fetchone()
+
+        return file_row['id'] if file_row else None
+
+    def _expand_wildcards(self, pattern: str) -> List[str]:
+        """
+        Use fnmatch to match files against a pattern.
+
+        Args:
+            pattern: Pattern with wildcards (e.g., "*.txt", "file?.*")
+                     Can be absolute path or relative to cwd
+
+        Returns:
+            List of matching absolute paths (backslash format)
+        """
+        abs_pattern = self._normalize_path(pattern)
+
+        # Split into directory and filename pattern
+        dir_part = os.path.dirname(abs_pattern)
+        file_pattern = os.path.basename(abs_pattern)
+
+        # If no wildcards, just return the pattern if it exists
+        if '*' not in file_pattern and '?' not in file_pattern and '[' not in file_pattern:
+            if self._get_file_id(abs_pattern) is not None:
+                return [abs_pattern]
+            return []
+
+        # Get volume ID
+        volume_id = self._get_volume_id_for_path(dir_part)
+        if volume_id is None:
+            return []
+
+        # Convert directory to database format
+        dir_path_db = dir_part.replace('\\', '/')
+
+        # Get directory ID
+        cursor = self.db.conn.cursor()
+        cursor.execute("""
+            SELECT id FROM directories
+            WHERE volume_id = ? AND dir_path = ?
+        """, (volume_id, dir_path_db))
+        dir_row = cursor.fetchone()
+
+        if dir_row is None:
+            return []
+
+        # Get all files in this directory
+        cursor.execute("""
+            SELECT name, extension FROM files
+            WHERE directory_id = ?
+        """, (dir_row['id'],))
+
+        matches = []
+        for row in cursor.fetchall():
+            # Reconstruct filename
+            if row['extension']:
+                filename = f"{row['name']}.{row['extension']}"
+            else:
+                filename = row['name']
+
+            # Check if it matches the pattern
+            if fnmatch.fnmatch(filename, file_pattern):
+                full_path = os.path.join(dir_part, filename)
+                matches.append(full_path)
+
+        return matches
+
+    def _get_directory_id(self, path: str) -> Optional[int]:
+        """
+        Get directory ID for a given path.
+
+        Args:
+            path: Path to the directory (can be relative or absolute)
+
+        Returns:
+            int: Directory ID if found, None if doesn't exist
+        """
+        abs_path = self._normalize_path(path)
+        volume_id = self._get_volume_id_for_path(abs_path)
+
+        if volume_id is None:
+            return None
+
+        dir_path_db = abs_path.replace('\\', '/')
+
+        cursor = self.db.conn.cursor()
+        cursor.execute("""
+            SELECT id FROM directories
+            WHERE volume_id = ? AND dir_path = ?
+        """, (volume_id, dir_path_db))
+        row = cursor.fetchone()
+
+        return row['id'] if row else None
+
+    # =========================================================================
+    # File Operations
+    # =========================================================================
+
+    def exists(self, path: str) -> bool:
+        """
+        Check if a file or directory exists.
+
+        Args:
+            path: Path to check (can be relative or absolute)
+
+        Returns:
+            bool: True if file or directory exists, False otherwise
+        """
+        abs_path = self._normalize_path(path)
+
+        # Check if it's a file
+        if self._get_file_id(abs_path) is not None:
+            return True
+
+        # Check if it's a directory
+        if self._get_directory_id(abs_path) is not None:
+            return True
+
+        # Check if it's the root of a mounted volume
+        if len(abs_path) == 3 and abs_path[1] == ':' and abs_path[2] == '\\':
+            volume_id = self._get_volume_id_for_path(abs_path)
+            return volume_id is not None
+
+        return False
+
+    def get_file(self, path: str) -> Optional[Dict[str, Any]]:
+        """
+        Get file record by path.
+
+        Args:
+            path: Path to the file (can be relative or absolute)
+
+        Returns:
+            dict: Dictionary of all file fields, or None if not found
+        """
+        try:
+            volume_id, dir_path_db, filename, extension = self._resolve_path(path)
+        except ValueError:
+            return None
+
+        cursor = self.db.conn.cursor()
+
+        # Get directory ID
+        cursor.execute("""
+            SELECT id FROM directories
+            WHERE volume_id = ? AND dir_path = ?
+        """, (volume_id, dir_path_db))
+        dir_row = cursor.fetchone()
+
+        if dir_row is None:
+            return None
+
+        # Get file record
+        cursor.execute("""
+            SELECT * FROM files
+            WHERE directory_id = ? AND name = ? AND extension = ?
+        """, (dir_row['id'], filename, extension))
+        file_row = cursor.fetchone()
+
+        if file_row is None:
+            return None
+
+        return dict(file_row)
+
+    def delete(self, path: str) -> bool:
+        """
+        Delete a file from the database.
+
+        Args:
+            path: Path to the file (can be relative or absolute)
+
+        Returns:
+            bool: True if deleted, False if not found
+        """
+        file_id = self._get_file_id(path)
+
+        if file_id is None:
+            return False
+
+        cursor = self.db.conn.cursor()
+        cursor.execute("DELETE FROM files WHERE id = ?", (file_id,))
+        self.db.conn.commit()
+
+        return True
+
+    # Alias for delete
+    rm = delete
+
+    def set_attributes(self, path: str, **kwargs) -> bool:
+        """
+        Modify attributes of an existing file.
+
+        Args:
+            path: Path to the file (can be relative or absolute)
+            **kwargs: Attributes to modify. Valid attributes are:
+                size_bytes, mtime, ctime, size_on_disk, readonly, system,
+                is_symlink, presence_state, duration, bitrate, codec,
+                framerate, image_format, resolution_width, resolution_height,
+                sample_rate, channels, tag_title, tag_artist, tag_album,
+                tag_album_artist, tag_track, tag_date
+
+        Returns:
+            bool: True if updated, False if file not found
+
+        Raises:
+            ValueError: If an invalid attribute name is provided
+        """
+        from .file_record_builder import FileRecordBuilder
+
+        # Validate kwargs
+        valid_attrs = FileRecordBuilder.VALID_PARAMS - {'extension'}  # Can't change extension
+        for key in kwargs:
+            if key not in valid_attrs:
+                raise ValueError(f"Invalid attribute: {key}")
+
+        file_id = self._get_file_id(path)
+        if file_id is None:
+            return False
+
+        if not kwargs:
+            return True  # Nothing to update
+
+        # Build SET clause
+        set_parts = []
+        values = []
+
+        for key, value in kwargs.items():
+            # Handle time conversion
+            if key in ('mtime', 'ctime'):
+                db_key = f'{key}_ns'
+                if value is not None:
+                    value = self._file_builder.parse_time(value)
+            else:
+                db_key = key
+
+            set_parts.append(f"{db_key} = ?")
+            values.append(value)
+
+        values.append(file_id)
+
+        cursor = self.db.conn.cursor()
+        cursor.execute(f"""
+            UPDATE files
+            SET {', '.join(set_parts)}
+            WHERE id = ?
+        """, values)
+        self.db.conn.commit()
+
+        return True
+
+    def find(self, pattern: str, path: str = None, recursive: bool = True) -> List[str]:
+        """
+        Find files matching fnmatch pattern.
+
+        Args:
+            pattern: fnmatch pattern (e.g., "*.txt", "file?.*", "[abc]*")
+            path: Directory to search in (defaults to cwd)
+            recursive: If True, search subdirectories. If False, only specified dir.
+
+        Returns:
+            List of matching absolute paths (backslash format)
+        """
+        if path is None:
+            search_path = self.cwd
+        else:
+            search_path = self._normalize_path(path)
+
+        volume_id = self._get_volume_id_for_path(search_path)
+        if volume_id is None:
+            return []
+
+        search_path_db = search_path.replace('\\', '/')
+
+        # Build LIKE pattern - handle root directory case
+        if search_path_db.endswith('/'):
+            like_pattern = search_path_db + '%'
+        else:
+            like_pattern = search_path_db + '/%'
+
+        cursor = self.db.conn.cursor()
+
+        if recursive:
+            # Get all directories that start with search_path
+            cursor.execute("""
+                SELECT id, dir_path FROM directories
+                WHERE volume_id = ?
+                  AND (dir_path = ? OR dir_path LIKE ?)
+            """, (volume_id, search_path_db, like_pattern))
+        else:
+            # Only the specified directory
+            cursor.execute("""
+                SELECT id, dir_path FROM directories
+                WHERE volume_id = ? AND dir_path = ?
+            """, (volume_id, search_path_db))
+
+        dir_rows = cursor.fetchall()
+        matches = []
+
+        for dir_row in dir_rows:
+            dir_id = dir_row['id']
+            dir_path = dir_row['dir_path']
+
+            # Get all files in this directory
+            cursor.execute("""
+                SELECT name, extension FROM files
+                WHERE directory_id = ?
+            """, (dir_id,))
+
+            for file_row in cursor.fetchall():
+                # Reconstruct filename
+                if file_row['extension']:
+                    filename = f"{file_row['name']}.{file_row['extension']}"
+                else:
+                    filename = file_row['name']
+
+                # Check if it matches the pattern
+                if fnmatch.fnmatch(filename, pattern):
+                    # Convert to backslash path
+                    full_path = dir_path.replace('/', '\\') + '\\' + filename
+                    matches.append(full_path)
+
+        return sorted(matches)
+
+    def copy(self, source: str, dest: str, preserve_timestamps: bool = True) -> int:
+        """
+        Copy file(s) to destination.
+
+        Supports wildcards in source pattern.
+
+        Args:
+            source: Source file path or pattern with wildcards
+            dest: Destination path (file or directory)
+            preserve_timestamps: If True, preserve mtime/ctime. If False, use current defaults.
+
+        Returns:
+            int: Count of files copied
+        """
+        # Expand wildcards
+        source_files = self._expand_wildcards(source)
+
+        if not source_files:
+            return 0
+
+        # Determine if dest is a directory
+        dest_abs = self._normalize_path(dest)
+        dest_is_dir = self._get_directory_id(dest_abs) is not None
+
+        # If multiple files, dest must be a directory
+        if len(source_files) > 1 and not dest_is_dir:
+            raise ValueError("Destination must be a directory when copying multiple files")
+
+        count = 0
+        for src_path in source_files:
+            # Get source file record
+            src_record = self.get_file(src_path)
+            if src_record is None:
+                continue
+
+            # Determine destination path
+            if dest_is_dir:
+                src_filename = os.path.basename(src_path)
+                dest_path = os.path.join(dest_abs, src_filename)
+            else:
+                dest_path = dest_abs
+
+            # Parse destination
+            volume_id, dir_path_db, filename, extension = self._resolve_path(dest_path)
+
+            # Get or create destination directory
+            cursor = self.db.conn.cursor()
+            cursor.execute("""
+                SELECT id FROM directories
+                WHERE volume_id = ? AND dir_path = ?
+            """, (volume_id, dir_path_db))
+            dir_row = cursor.fetchone()
+
+            if dir_row is None:
+                # Create directory
+                self.mkdir(dir_path_db.replace('/', '\\'))
+                cursor.execute("""
+                    SELECT id FROM directories
+                    WHERE volume_id = ? AND dir_path = ?
+                """, (volume_id, dir_path_db))
+                dir_row = cursor.fetchone()
+
+            dir_id = dir_row['id']
+
+            # Build new record
+            new_record = {
+                'name': filename,
+                'extension': extension,
+                'size_bytes': src_record['size_bytes'],
+                'size_on_disk': src_record['size_on_disk'],
+                'readonly': src_record['readonly'],
+                'system': src_record['system'],
+                'is_symlink': src_record['is_symlink'],
+                'presence_state': src_record['presence_state'],
+                # Media fields
+                'duration': src_record.get('duration'),
+                'bitrate': src_record.get('bitrate'),
+                'codec': src_record.get('codec'),
+                'framerate': src_record.get('framerate'),
+                'image_format': src_record.get('image_format'),
+                'resolution_width': src_record.get('resolution_width'),
+                'resolution_height': src_record.get('resolution_height'),
+                'sample_rate': src_record.get('sample_rate'),
+                'channels': src_record.get('channels'),
+                # Tag fields
+                'tag_title': src_record.get('tag_title'),
+                'tag_artist': src_record.get('tag_artist'),
+                'tag_album': src_record.get('tag_album'),
+                'tag_album_artist': src_record.get('tag_album_artist'),
+                'tag_track': src_record.get('tag_track'),
+                'tag_date': src_record.get('tag_date'),
+            }
+
+            if preserve_timestamps:
+                new_record['mtime_ns'] = src_record.get('mtime_ns')
+                new_record['ctime_ns'] = src_record.get('ctime_ns')
+            else:
+                # Use current defaults
+                mtime = self._file_builder._defaults.get('mtime')
+                ctime = self._file_builder._defaults.get('ctime')
+                new_record['mtime_ns'] = self._file_builder.parse_time(mtime)
+                new_record['ctime_ns'] = self._file_builder.parse_time(ctime)
+
+            # Insert into database
+            self.db.upsert_file_record(dir_id, new_record)
+            count += 1
+
+        return count
+
+    def move(self, source: str, dest: str) -> int:
+        """
+        Move/rename file(s).
+
+        Supports wildcards in source pattern.
+
+        Args:
+            source: Source file path or pattern with wildcards
+            dest: Destination path (file or directory)
+
+        Returns:
+            int: Count of files moved
+        """
+        # Expand wildcards
+        source_files = self._expand_wildcards(source)
+
+        if not source_files:
+            return 0
+
+        # Determine if dest is a directory
+        dest_abs = self._normalize_path(dest)
+        dest_is_dir = self._get_directory_id(dest_abs) is not None
+
+        # If multiple files, dest must be a directory
+        if len(source_files) > 1 and not dest_is_dir:
+            raise ValueError("Destination must be a directory when moving multiple files")
+
+        count = 0
+        cursor = self.db.conn.cursor()
+
+        for src_path in source_files:
+            file_id = self._get_file_id(src_path)
+            if file_id is None:
+                continue
+
+            # Determine destination
+            if dest_is_dir:
+                src_filename = os.path.basename(src_path)
+                dest_path = os.path.join(dest_abs, src_filename)
+            else:
+                dest_path = dest_abs
+
+            # Parse destination
+            volume_id, dir_path_db, new_name, new_extension = self._resolve_path(dest_path)
+
+            # Get or create destination directory
+            cursor.execute("""
+                SELECT id FROM directories
+                WHERE volume_id = ? AND dir_path = ?
+            """, (volume_id, dir_path_db))
+            dir_row = cursor.fetchone()
+
+            if dir_row is None:
+                # Create directory
+                self.mkdir(dir_path_db.replace('/', '\\'))
+                cursor.execute("""
+                    SELECT id FROM directories
+                    WHERE volume_id = ? AND dir_path = ?
+                """, (volume_id, dir_path_db))
+                dir_row = cursor.fetchone()
+
+            new_dir_id = dir_row['id']
+
+            # Update file record
+            cursor.execute("""
+                UPDATE files
+                SET directory_id = ?, name = ?, extension = ?
+                WHERE id = ?
+            """, (new_dir_id, new_name, new_extension, file_id))
+
+            count += 1
+
+        self.db.conn.commit()
+        return count
+
+    # =========================================================================
+    # Directory Operations
+    # =========================================================================
+
+    def copydir(self, source: str, dest: str) -> int:
+        """
+        Copy directory recursively.
+
+        Args:
+            source: Source directory path
+            dest: Destination directory path
+
+        Returns:
+            int: Count of files copied
+        """
+        source_abs = self._normalize_path(source)
+        dest_abs = self._normalize_path(dest)
+
+        # Verify source exists
+        source_dir_id = self._get_directory_id(source_abs)
+        if source_dir_id is None:
+            raise ValueError(f"Source directory does not exist: {source}")
+
+        volume_id = self._get_volume_id_for_path(source_abs)
+        source_db = source_abs.replace('\\', '/')
+        dest_db = dest_abs.replace('\\', '/')
+
+        # Create destination directory
+        self.mkdir(dest_abs)
+
+        cursor = self.db.conn.cursor()
+
+        # Get all subdirectories under source
+        cursor.execute("""
+            SELECT dir_path FROM directories
+            WHERE volume_id = ? AND dir_path LIKE ?
+        """, (volume_id, source_db + '/%'))
+
+        # Create corresponding subdirectories in dest
+        for row in cursor.fetchall():
+            src_subdir = row['dir_path']
+            # Replace source prefix with dest prefix
+            relative_part = src_subdir[len(source_db):]
+            dest_subdir = dest_db + relative_part
+            self.mkdir(dest_subdir.replace('/', '\\'))
+
+        # Get all files in source directory tree
+        cursor.execute("""
+            SELECT d.dir_path, f.*
+            FROM files f
+            JOIN directories d ON f.directory_id = d.id
+            WHERE d.volume_id = ?
+              AND (d.dir_path = ? OR d.dir_path LIKE ?)
+        """, (volume_id, source_db, source_db + '/%'))
+
+        count = 0
+        dest_volume_id = self._get_volume_id_for_path(dest_abs)
+
+        for row in cursor.fetchall():
+            src_dir_path = row['dir_path']
+            relative_part = src_dir_path[len(source_db):]
+            dest_dir_path = dest_db + relative_part
+
+            # Get destination directory ID
+            cursor2 = self.db.conn.cursor()
+            cursor2.execute("""
+                SELECT id FROM directories
+                WHERE volume_id = ? AND dir_path = ?
+            """, (dest_volume_id, dest_dir_path))
+            dest_dir_row = cursor2.fetchone()
+
+            if dest_dir_row is None:
+                continue
+
+            # Build new record
+            new_record = {
+                'name': row['name'],
+                'extension': row['extension'],
+                'size_bytes': row['size_bytes'],
+                'mtime_ns': row['mtime_ns'],
+                'ctime_ns': row['ctime_ns'],
+                'size_on_disk': row['size_on_disk'],
+                'readonly': row['readonly'],
+                'system': row['system'],
+                'is_symlink': row['is_symlink'],
+                'presence_state': row['presence_state'],
+                'duration': row['duration'],
+                'bitrate': row['bitrate'],
+                'codec': row['codec'],
+                'framerate': row['framerate'],
+                'image_format': row['image_format'],
+                'resolution_width': row['resolution_width'],
+                'resolution_height': row['resolution_height'],
+                'sample_rate': row['sample_rate'],
+                'channels': row['channels'],
+                'tag_title': row['tag_title'],
+                'tag_artist': row['tag_artist'],
+                'tag_album': row['tag_album'],
+                'tag_album_artist': row['tag_album_artist'],
+                'tag_track': row['tag_track'],
+                'tag_date': row['tag_date'],
+            }
+
+            self.db.upsert_file_record(dest_dir_row['id'], new_record)
+            count += 1
+
+        return count
+
+    def movedir(self, source: str, dest: str) -> int:
+        """
+        Move/rename directory.
+
+        Args:
+            source: Source directory path
+            dest: Destination directory path
+
+        Returns:
+            int: Count of directories/files affected
+        """
+        source_abs = self._normalize_path(source)
+        dest_abs = self._normalize_path(dest)
+
+        # Verify source exists
+        volume_id = self._get_volume_id_for_path(source_abs)
+        if volume_id is None:
+            raise ValueError(f"Volume not mounted: {source_abs}")
+
+        source_db = source_abs.replace('\\', '/')
+        dest_db = dest_abs.replace('\\', '/')
+
+        cursor = self.db.conn.cursor()
+
+        # Check source exists
+        cursor.execute("""
+            SELECT id FROM directories
+            WHERE volume_id = ? AND dir_path = ?
+        """, (volume_id, source_db))
+
+        if cursor.fetchone() is None:
+            raise ValueError(f"Source directory does not exist: {source}")
+
+        # Update all directory paths that start with source
+        # First, get count for return value
+        cursor.execute("""
+            SELECT COUNT(*) as count FROM directories
+            WHERE volume_id = ?
+              AND (dir_path = ? OR dir_path LIKE ?)
+        """, (volume_id, source_db, source_db + '/%'))
+        count = cursor.fetchone()['count']
+
+        # Update the directories
+        # Use REPLACE to change the prefix
+        cursor.execute("""
+            UPDATE directories
+            SET dir_path = ? || SUBSTR(dir_path, ?)
+            WHERE volume_id = ?
+              AND (dir_path = ? OR dir_path LIKE ?)
+        """, (dest_db, len(source_db) + 1, volume_id, source_db, source_db + '/%'))
+
+        self.db.conn.commit()
+
+        return count

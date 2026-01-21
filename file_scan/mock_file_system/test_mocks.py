@@ -719,5 +719,524 @@ class TestLsDirFunction(unittest.TestCase):
         self.assertEqual(subdirs, ['Alpha', 'Bravo', 'Charlie'])
 
 
+class TestExists(unittest.TestCase):
+    """Test the exists() function"""
+
+    def setUp(self):
+        """Create a temporary database for each test"""
+        self.temp_db = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db')
+        self.temp_db.close()
+        self.db_path = self.temp_db.name
+        self.mock_fs = MockFiles(self.db_path)
+        self.mock_fs.mount_volume(drive_letter='C')
+
+    def tearDown(self):
+        """Clean up temporary database"""
+        self.mock_fs.db.close()
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+
+    def test_exists_file(self):
+        """Test that exists returns True for a file"""
+        self.mock_fs.save("test.txt")
+        self.assertTrue(self.mock_fs.exists("test.txt"))
+
+    def test_exists_directory(self):
+        """Test that exists returns True for a directory"""
+        self.mock_fs.mkdir("C:\\Users")
+        self.assertTrue(self.mock_fs.exists("C:\\Users"))
+
+    def test_exists_root_directory(self):
+        """Test that exists returns True for root directory"""
+        self.assertTrue(self.mock_fs.exists("C:\\"))
+
+    def test_exists_nonexistent_file(self):
+        """Test that exists returns False for non-existent file"""
+        self.assertFalse(self.mock_fs.exists("nonexistent.txt"))
+
+    def test_exists_nonexistent_directory(self):
+        """Test that exists returns False for non-existent directory"""
+        self.assertFalse(self.mock_fs.exists("C:\\NonExistent"))
+
+    def test_exists_absolute_path(self):
+        """Test exists with absolute path"""
+        self.mock_fs.mkdir("C:\\Users")
+        self.mock_fs.cd("C:\\Users")
+        self.mock_fs.save("doc.txt")
+        self.assertTrue(self.mock_fs.exists("C:\\Users\\doc.txt"))
+
+
+class TestGetFile(unittest.TestCase):
+    """Test the get_file() function"""
+
+    def setUp(self):
+        """Create a temporary database for each test"""
+        self.temp_db = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db')
+        self.temp_db.close()
+        self.db_path = self.temp_db.name
+        self.mock_fs = MockFiles(self.db_path)
+        self.mock_fs.mount_volume(drive_letter='C')
+
+    def tearDown(self):
+        """Clean up temporary database"""
+        self.mock_fs.db.close()
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+
+    def test_get_file_by_relative_path(self):
+        """Test getting file by relative path"""
+        self.mock_fs.save("test.txt", size_bytes=1024)
+        result = self.mock_fs.get_file("test.txt")
+        self.assertIsNotNone(result)
+        self.assertEqual(result['name'], 'test')
+        self.assertEqual(result['extension'], 'txt')
+        self.assertEqual(result['size_bytes'], 1024)
+
+    def test_get_file_by_absolute_path(self):
+        """Test getting file by absolute path"""
+        self.mock_fs.mkdir("C:\\Users")
+        self.mock_fs.cd("C:\\Users")
+        self.mock_fs.save("doc.pdf", size_bytes=2048)
+        self.mock_fs.cd("C:\\")
+        result = self.mock_fs.get_file("C:\\Users\\doc.pdf")
+        self.assertIsNotNone(result)
+        self.assertEqual(result['name'], 'doc')
+        self.assertEqual(result['extension'], 'pdf')
+
+    def test_get_file_nonexistent(self):
+        """Test getting non-existent file returns None"""
+        result = self.mock_fs.get_file("nonexistent.txt")
+        self.assertIsNone(result)
+
+    def test_get_file_returns_all_fields(self):
+        """Test that get_file returns all file fields"""
+        self.mock_fs.save("test.txt", size_bytes=100, readonly=1)
+        result = self.mock_fs.get_file("test.txt")
+        self.assertIn('id', result)
+        self.assertIn('name', result)
+        self.assertIn('extension', result)
+        self.assertIn('size_bytes', result)
+        self.assertIn('readonly', result)
+
+
+class TestDelete(unittest.TestCase):
+    """Test the delete() function"""
+
+    def setUp(self):
+        """Create a temporary database for each test"""
+        self.temp_db = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db')
+        self.temp_db.close()
+        self.db_path = self.temp_db.name
+        self.mock_fs = MockFiles(self.db_path)
+        self.mock_fs.mount_volume(drive_letter='C')
+
+    def tearDown(self):
+        """Clean up temporary database"""
+        self.mock_fs.db.close()
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+
+    def test_delete_file(self):
+        """Test deleting a file"""
+        self.mock_fs.save("test.txt")
+        self.assertTrue(self.mock_fs.exists("test.txt"))
+        result = self.mock_fs.delete("test.txt")
+        self.assertTrue(result)
+        self.assertFalse(self.mock_fs.exists("test.txt"))
+
+    def test_delete_nonexistent(self):
+        """Test deleting non-existent file returns False"""
+        result = self.mock_fs.delete("nonexistent.txt")
+        self.assertFalse(result)
+
+    def test_rm_alias(self):
+        """Test that rm is an alias for delete"""
+        self.mock_fs.save("test.txt")
+        result = self.mock_fs.rm("test.txt")
+        self.assertTrue(result)
+        self.assertFalse(self.mock_fs.exists("test.txt"))
+
+    def test_delete_verify_gone(self):
+        """Test that deleted file is gone from database"""
+        self.mock_fs.save("test.txt")
+        self.mock_fs.delete("test.txt")
+        files = self.mock_fs.ls()
+        self.assertEqual(len(files), 0)
+
+
+class TestSetAttributes(unittest.TestCase):
+    """Test the set_attributes() function"""
+
+    def setUp(self):
+        """Create a temporary database for each test"""
+        self.temp_db = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db')
+        self.temp_db.close()
+        self.db_path = self.temp_db.name
+        self.mock_fs = MockFiles(self.db_path)
+        self.mock_fs.mount_volume(drive_letter='C')
+
+    def tearDown(self):
+        """Clean up temporary database"""
+        self.mock_fs.db.close()
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+
+    def test_set_size(self):
+        """Test changing size_bytes"""
+        self.mock_fs.save("test.txt", size_bytes=100)
+        self.mock_fs.set_attributes("test.txt", size_bytes=500)
+        result = self.mock_fs.get_file("test.txt")
+        self.assertEqual(result['size_bytes'], 500)
+
+    def test_set_readonly(self):
+        """Test changing readonly flag"""
+        self.mock_fs.save("test.txt", readonly=0)
+        self.mock_fs.set_attributes("test.txt", readonly=1)
+        result = self.mock_fs.get_file("test.txt")
+        self.assertEqual(result['readonly'], 1)
+
+    def test_set_timestamps(self):
+        """Test changing timestamps"""
+        self.mock_fs.save("test.txt")
+        self.mock_fs.set_attributes("test.txt", mtime="2024-06-15 10:30:00")
+        result = self.mock_fs.get_file("test.txt")
+        self.assertIsNotNone(result['mtime_ns'])
+
+    def test_set_multiple_attributes(self):
+        """Test changing multiple attributes at once"""
+        self.mock_fs.save("test.txt", size_bytes=100)
+        self.mock_fs.set_attributes("test.txt", size_bytes=200, readonly=1, system=1)
+        result = self.mock_fs.get_file("test.txt")
+        self.assertEqual(result['size_bytes'], 200)
+        self.assertEqual(result['readonly'], 1)
+        self.assertEqual(result['system'], 1)
+
+    def test_set_invalid_attribute_raises(self):
+        """Test that invalid attribute names raise error"""
+        self.mock_fs.save("test.txt")
+        with self.assertRaises(ValueError):
+            self.mock_fs.set_attributes("test.txt", invalid_attr=123)
+
+    def test_set_nonexistent_file(self):
+        """Test that set_attributes on non-existent file returns False"""
+        result = self.mock_fs.set_attributes("nonexistent.txt", size_bytes=100)
+        self.assertFalse(result)
+
+
+class TestFind(unittest.TestCase):
+    """Test the find() function"""
+
+    def setUp(self):
+        """Create a temporary database for each test"""
+        self.temp_db = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db')
+        self.temp_db.close()
+        self.db_path = self.temp_db.name
+        self.mock_fs = MockFiles(self.db_path)
+        self.mock_fs.mount_volume(drive_letter='C')
+
+    def tearDown(self):
+        """Clean up temporary database"""
+        self.mock_fs.db.close()
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+
+    def test_find_star_extension(self):
+        """Test finding files with *.txt pattern"""
+        self.mock_fs.save("file1.txt")
+        self.mock_fs.save("file2.txt")
+        self.mock_fs.save("file3.doc")
+        results = self.mock_fs.find("*.txt")
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all('.txt' in r for r in results))
+
+    def test_find_question_mark(self):
+        """Test finding files with file?.txt pattern"""
+        self.mock_fs.save("file1.txt")
+        self.mock_fs.save("file2.txt")
+        self.mock_fs.save("file10.txt")
+        results = self.mock_fs.find("file?.txt")
+        self.assertEqual(len(results), 2)
+
+    def test_find_bracket_pattern(self):
+        """Test finding files with [abc]* pattern"""
+        self.mock_fs.save("alpha.txt")
+        self.mock_fs.save("bravo.txt")
+        self.mock_fs.save("charlie.txt")
+        self.mock_fs.save("delta.txt")
+        results = self.mock_fs.find("[abc]*")
+        self.assertEqual(len(results), 3)
+
+    def test_find_recursive(self):
+        """Test that recursive=True finds files in subdirs"""
+        self.mock_fs.save("root.txt")
+        self.mock_fs.mkdir("C:\\subdir")
+        self.mock_fs.cd("C:\\subdir")
+        self.mock_fs.save("sub.txt")
+        self.mock_fs.cd("C:\\")
+        results = self.mock_fs.find("*.txt", path="C:\\", recursive=True)
+        self.assertEqual(len(results), 2)
+
+    def test_find_not_recursive(self):
+        """Test that recursive=False only finds files in specified dir"""
+        self.mock_fs.save("root.txt")
+        self.mock_fs.mkdir("C:\\subdir")
+        self.mock_fs.cd("C:\\subdir")
+        self.mock_fs.save("sub.txt")
+        self.mock_fs.cd("C:\\")
+        results = self.mock_fs.find("*.txt", path="C:\\", recursive=False)
+        self.assertEqual(len(results), 1)
+        self.assertIn("root.txt", results[0])
+
+    def test_find_specific_path(self):
+        """Test find with specific path"""
+        self.mock_fs.mkdir("C:\\docs")
+        self.mock_fs.cd("C:\\docs")
+        self.mock_fs.save("readme.txt")
+        self.mock_fs.cd("C:\\")
+        results = self.mock_fs.find("*.txt", path="C:\\docs")
+        self.assertEqual(len(results), 1)
+
+
+class TestCopy(unittest.TestCase):
+    """Test the copy() function"""
+
+    def setUp(self):
+        """Create a temporary database for each test"""
+        self.temp_db = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db')
+        self.temp_db.close()
+        self.db_path = self.temp_db.name
+        self.mock_fs = MockFiles(self.db_path)
+        self.mock_fs.mount_volume(drive_letter='C')
+
+    def tearDown(self):
+        """Clean up temporary database"""
+        self.mock_fs.db.close()
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+
+    def test_copy_single_file(self):
+        """Test copying a single file"""
+        self.mock_fs.save("file1.txt", size_bytes=100)
+        count = self.mock_fs.copy("file1.txt", "file1_copy.txt")
+        self.assertEqual(count, 1)
+        self.assertTrue(self.mock_fs.exists("file1.txt"))
+        self.assertTrue(self.mock_fs.exists("file1_copy.txt"))
+        # Check content preserved
+        copy = self.mock_fs.get_file("file1_copy.txt")
+        self.assertEqual(copy['size_bytes'], 100)
+
+    def test_copy_with_wildcard(self):
+        """Test copying with wildcard pattern"""
+        self.mock_fs.save("file1.txt")
+        self.mock_fs.save("file2.txt")
+        self.mock_fs.save("other.doc")
+        self.mock_fs.mkdir("C:\\dest")
+        count = self.mock_fs.copy("*.txt", "C:\\dest")
+        self.assertEqual(count, 2)
+        self.mock_fs.cd("C:\\dest")
+        files = self.mock_fs.ls()
+        self.assertEqual(len(files), 2)
+
+    def test_copy_to_directory(self):
+        """Test copying file to directory preserves name"""
+        self.mock_fs.save("test.txt")
+        self.mock_fs.mkdir("C:\\dest")
+        self.mock_fs.copy("test.txt", "C:\\dest")
+        self.assertTrue(self.mock_fs.exists("C:\\dest\\test.txt"))
+
+    def test_copy_with_rename(self):
+        """Test copying with rename"""
+        self.mock_fs.save("original.txt", size_bytes=500)
+        self.mock_fs.copy("original.txt", "renamed.txt")
+        self.assertTrue(self.mock_fs.exists("original.txt"))
+        self.assertTrue(self.mock_fs.exists("renamed.txt"))
+        renamed = self.mock_fs.get_file("renamed.txt")
+        self.assertEqual(renamed['name'], 'renamed')
+
+    def test_copy_preserves_timestamps(self):
+        """Test that copy preserves timestamps by default"""
+        self.mock_fs.save("test.txt", mtime="2024-01-15 10:30:00")
+        original = self.mock_fs.get_file("test.txt")
+        self.mock_fs.copy("test.txt", "copy.txt")
+        copy = self.mock_fs.get_file("copy.txt")
+        self.assertEqual(original['mtime_ns'], copy['mtime_ns'])
+
+    def test_copy_nonexistent_returns_zero(self):
+        """Test copying non-existent file returns 0"""
+        count = self.mock_fs.copy("nonexistent.txt", "dest.txt")
+        self.assertEqual(count, 0)
+
+
+class TestMove(unittest.TestCase):
+    """Test the move() function"""
+
+    def setUp(self):
+        """Create a temporary database for each test"""
+        self.temp_db = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db')
+        self.temp_db.close()
+        self.db_path = self.temp_db.name
+        self.mock_fs = MockFiles(self.db_path)
+        self.mock_fs.mount_volume(drive_letter='C')
+
+    def tearDown(self):
+        """Clean up temporary database"""
+        self.mock_fs.db.close()
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+
+    def test_move_single_file(self):
+        """Test moving a single file"""
+        self.mock_fs.save("file1.txt", size_bytes=100)
+        self.mock_fs.mkdir("C:\\dest")
+        count = self.mock_fs.move("file1.txt", "C:\\dest")
+        self.assertEqual(count, 1)
+        self.assertFalse(self.mock_fs.exists("C:\\file1.txt"))
+        self.assertTrue(self.mock_fs.exists("C:\\dest\\file1.txt"))
+
+    def test_move_with_wildcard(self):
+        """Test moving with wildcard pattern"""
+        self.mock_fs.save("file1.txt")
+        self.mock_fs.save("file2.txt")
+        self.mock_fs.mkdir("C:\\dest")
+        count = self.mock_fs.move("*.txt", "C:\\dest")
+        self.assertEqual(count, 2)
+        files = self.mock_fs.ls()
+        self.assertEqual(len(files), 0)
+
+    def test_move_rename(self):
+        """Test renaming (move to same dir with different name)"""
+        self.mock_fs.save("old_name.txt", size_bytes=100)
+        count = self.mock_fs.move("old_name.txt", "new_name.txt")
+        self.assertEqual(count, 1)
+        self.assertFalse(self.mock_fs.exists("old_name.txt"))
+        self.assertTrue(self.mock_fs.exists("new_name.txt"))
+        # Verify data preserved
+        file = self.mock_fs.get_file("new_name.txt")
+        self.assertEqual(file['size_bytes'], 100)
+
+    def test_move_nonexistent_returns_zero(self):
+        """Test moving non-existent file returns 0"""
+        count = self.mock_fs.move("nonexistent.txt", "dest.txt")
+        self.assertEqual(count, 0)
+
+
+class TestCopydir(unittest.TestCase):
+    """Test the copydir() function"""
+
+    def setUp(self):
+        """Create a temporary database for each test"""
+        self.temp_db = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db')
+        self.temp_db.close()
+        self.db_path = self.temp_db.name
+        self.mock_fs = MockFiles(self.db_path)
+        self.mock_fs.mount_volume(drive_letter='C')
+
+    def tearDown(self):
+        """Clean up temporary database"""
+        self.mock_fs.db.close()
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+
+    def test_copydir_with_files(self):
+        """Test copying directory with files"""
+        self.mock_fs.mkdir("C:\\source")
+        self.mock_fs.cd("C:\\source")
+        self.mock_fs.save("file1.txt", size_bytes=100)
+        self.mock_fs.save("file2.txt", size_bytes=200)
+        self.mock_fs.cd("C:\\")
+        count = self.mock_fs.copydir("C:\\source", "C:\\dest")
+        self.assertEqual(count, 2)
+        self.assertTrue(self.mock_fs.exists("C:\\dest\\file1.txt"))
+        self.assertTrue(self.mock_fs.exists("C:\\dest\\file2.txt"))
+        # Original still exists
+        self.assertTrue(self.mock_fs.exists("C:\\source\\file1.txt"))
+
+    def test_copydir_nested(self):
+        """Test copying nested directories"""
+        self.mock_fs.mkdir("C:\\source\\sub1\\sub2")
+        self.mock_fs.cd("C:\\source")
+        self.mock_fs.save("root.txt")
+        self.mock_fs.cd("C:\\source\\sub1")
+        self.mock_fs.save("level1.txt")
+        self.mock_fs.cd("C:\\source\\sub1\\sub2")
+        self.mock_fs.save("level2.txt")
+        self.mock_fs.cd("C:\\")
+        count = self.mock_fs.copydir("C:\\source", "C:\\dest")
+        self.assertEqual(count, 3)
+        self.assertTrue(self.mock_fs.exists("C:\\dest\\root.txt"))
+        self.assertTrue(self.mock_fs.exists("C:\\dest\\sub1\\level1.txt"))
+        self.assertTrue(self.mock_fs.exists("C:\\dest\\sub1\\sub2\\level2.txt"))
+
+    def test_copydir_nonexistent_raises(self):
+        """Test copying non-existent directory raises error"""
+        with self.assertRaises(ValueError):
+            self.mock_fs.copydir("C:\\nonexistent", "C:\\dest")
+
+
+class TestMovedir(unittest.TestCase):
+    """Test the movedir() function"""
+
+    def setUp(self):
+        """Create a temporary database for each test"""
+        self.temp_db = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db')
+        self.temp_db.close()
+        self.db_path = self.temp_db.name
+        self.mock_fs = MockFiles(self.db_path)
+        self.mock_fs.mount_volume(drive_letter='C')
+
+    def tearDown(self):
+        """Clean up temporary database"""
+        self.mock_fs.db.close()
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+
+    def test_movedir_rename(self):
+        """Test renaming directory"""
+        self.mock_fs.mkdir("C:\\old_name")
+        self.mock_fs.cd("C:\\old_name")
+        self.mock_fs.save("test.txt")
+        self.mock_fs.cd("C:\\")
+        count = self.mock_fs.movedir("C:\\old_name", "C:\\new_name")
+        self.assertEqual(count, 1)
+        self.assertFalse(self.mock_fs.exists("C:\\old_name"))
+        self.assertTrue(self.mock_fs.exists("C:\\new_name"))
+        self.assertTrue(self.mock_fs.exists("C:\\new_name\\test.txt"))
+
+    def test_movedir_to_different_location(self):
+        """Test moving directory to different location"""
+        self.mock_fs.mkdir("C:\\source")
+        self.mock_fs.mkdir("C:\\parent")
+        self.mock_fs.cd("C:\\source")
+        self.mock_fs.save("file.txt")
+        self.mock_fs.cd("C:\\")
+        count = self.mock_fs.movedir("C:\\source", "C:\\parent\\source")
+        self.assertEqual(count, 1)
+        self.assertFalse(self.mock_fs.exists("C:\\source"))
+        self.assertTrue(self.mock_fs.exists("C:\\parent\\source"))
+        self.assertTrue(self.mock_fs.exists("C:\\parent\\source\\file.txt"))
+
+    def test_movedir_files_move_with_directory(self):
+        """Test that files move with directory"""
+        self.mock_fs.mkdir("C:\\dir\\subdir")
+        self.mock_fs.cd("C:\\dir")
+        self.mock_fs.save("a.txt", size_bytes=100)
+        self.mock_fs.cd("C:\\dir\\subdir")
+        self.mock_fs.save("b.txt", size_bytes=200)
+        self.mock_fs.cd("C:\\")
+        count = self.mock_fs.movedir("C:\\dir", "C:\\renamed")
+        self.assertEqual(count, 2)  # dir and subdir
+        # Check files exist at new location
+        self.assertTrue(self.mock_fs.exists("C:\\renamed\\a.txt"))
+        self.assertTrue(self.mock_fs.exists("C:\\renamed\\subdir\\b.txt"))
+        # Verify file data preserved
+        file = self.mock_fs.get_file("C:\\renamed\\a.txt")
+        self.assertEqual(file['size_bytes'], 100)
+
+    def test_movedir_nonexistent_raises(self):
+        """Test moving non-existent directory raises error"""
+        with self.assertRaises(ValueError):
+            self.mock_fs.movedir("C:\\nonexistent", "C:\\dest")
+
+
 if __name__ == '__main__':
     unittest.main()
