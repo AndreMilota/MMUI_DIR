@@ -719,6 +719,172 @@ class TestLsDirFunction(unittest.TestCase):
         self.assertEqual(subdirs, ['Alpha', 'Bravo', 'Charlie'])
 
 
+class TestSaveM(unittest.TestCase):
+    """Test the save_m() function for media files"""
+
+    def setUp(self):
+        """Create a temporary database for each test"""
+        self.temp_db = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db')
+        self.temp_db.close()
+        self.db_path = self.temp_db.name
+        self.mock_fs = MockFiles(self.db_path)
+        self.mock_fs.mount_volume(drive_letter='C')
+
+    def tearDown(self):
+        """Clean up temporary database"""
+        self.mock_fs.db.close()
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+
+    def test_compute_size_from_duration_and_bitrate(self):
+        """Test computing size_bytes from duration and bitrate"""
+        self.mock_fs.save_m("song.mp3", duration=180, bitrate=320000)
+        file = self.mock_fs.get_file("song.mp3")
+        # size = 180 * 320000 / 8 = 7,200,000
+        self.assertEqual(file['size_bytes'], 7200000)
+        self.assertEqual(file['duration'], 180)
+        self.assertEqual(file['bitrate'], 320000)
+
+    def test_compute_duration_from_size_and_bitrate(self):
+        """Test computing duration from size_bytes and bitrate"""
+        self.mock_fs.save_m("track.mp3", size_bytes=4800000, bitrate=320000)
+        file = self.mock_fs.get_file("track.mp3")
+        # duration = 4800000 * 8 / 320000 = 120
+        self.assertEqual(file['duration'], 120)
+        self.assertEqual(file['size_bytes'], 4800000)
+
+    def test_compute_bitrate_from_size_and_duration(self):
+        """Test computing bitrate from size_bytes and duration"""
+        self.mock_fs.save_m("audio.mp3", size_bytes=7200000, duration=180)
+        file = self.mock_fs.get_file("audio.mp3")
+        # bitrate = 7200000 * 8 / 180 = 320000
+        self.assertEqual(file['bitrate'], 320000)
+
+    def test_all_values_consistent_passes(self):
+        """Test that consistent values pass validation"""
+        # size = duration * bitrate / 8 = 180 * 320000 / 8 = 7200000
+        file_id = self.mock_fs.save_m(
+            "valid.mp3",
+            size_bytes=7200000,
+            duration=180,
+            bitrate=320000
+        )
+        self.assertIsInstance(file_id, int)
+        file = self.mock_fs.get_file("valid.mp3")
+        self.assertEqual(file['size_bytes'], 7200000)
+
+    def test_conflicting_values_raises_error(self):
+        """Test that conflicting values raise ValueError"""
+        # Expected size = 180 * 320000 / 8 = 7,200,000, but we provide 1000
+        with self.assertRaises(ValueError) as ctx:
+            self.mock_fs.save_m(
+                "bad.mp3",
+                size_bytes=1000,
+                duration=180,
+                bitrate=320000
+            )
+        self.assertIn("conflict", str(ctx.exception).lower())
+
+    def test_tolerance_allows_small_differences(self):
+        """Test that small differences within tolerance pass"""
+        # Expected size = 7,200,000, provide 7,100,000 (~1.4% diff)
+        file_id = self.mock_fs.save_m(
+            "close.mp3",
+            size_bytes=7100000,
+            duration=180,
+            bitrate=320000,
+            tolerance=0.05  # 5% tolerance
+        )
+        self.assertIsInstance(file_id, int)
+
+    def test_strict_tolerance_catches_small_differences(self):
+        """Test that strict tolerance catches small differences"""
+        with self.assertRaises(ValueError):
+            self.mock_fs.save_m(
+                "strict.mp3",
+                size_bytes=7100000,
+                duration=180,
+                bitrate=320000,
+                tolerance=0.01  # 1% tolerance - 1.4% diff will fail
+            )
+
+    def test_video_extension_computes_size(self):
+        """Test that video files also compute size"""
+        self.mock_fs.save_m("movie.mp4", duration=3600, bitrate=5000000)
+        file = self.mock_fs.get_file("movie.mp4")
+        # size = 3600 * 5000000 / 8 = 2,250,000,000
+        self.assertEqual(file['size_bytes'], 2250000000)
+
+    def test_image_requires_both_dimensions(self):
+        """Test that images require both width and height"""
+        with self.assertRaises(ValueError) as ctx:
+            self.mock_fs.save_m("photo.jpg", resolution_width=1920)
+        self.assertIn("resolution", str(ctx.exception).lower())
+
+    def test_image_both_dimensions_works(self):
+        """Test that images work with both dimensions"""
+        file_id = self.mock_fs.save_m(
+            "photo.jpg",
+            resolution_width=1920,
+            resolution_height=1080,
+            size_bytes=500000
+        )
+        self.assertIsInstance(file_id, int)
+        file = self.mock_fs.get_file("photo.jpg")
+        self.assertEqual(file['resolution_width'], 1920)
+        self.assertEqual(file['resolution_height'], 1080)
+
+    def test_partial_values_no_computation(self):
+        """Test that partial values don't cause errors when computation isn't possible"""
+        # Only duration provided - can't compute anything else
+        file_id = self.mock_fs.save_m("song.mp3", duration=180)
+        self.assertIsInstance(file_id, int)
+        file = self.mock_fs.get_file("song.mp3")
+        self.assertEqual(file['duration'], 180)
+
+    def test_preserves_other_media_fields(self):
+        """Test that other media fields are preserved"""
+        self.mock_fs.save_m(
+            "song.mp3",
+            duration=180,
+            bitrate=320000,
+            codec='mp3',
+            sample_rate=44100,
+            channels=2
+        )
+        file = self.mock_fs.get_file("song.mp3")
+        self.assertEqual(file['codec'], 'mp3')
+        self.assertEqual(file['sample_rate'], 44100)
+        self.assertEqual(file['channels'], 2)
+
+    def test_preserves_tag_fields(self):
+        """Test that tag fields are preserved"""
+        self.mock_fs.save_m(
+            "song.mp3",
+            duration=180,
+            bitrate=320000,
+            tag_title="My Song",
+            tag_artist="Artist"
+        )
+        file = self.mock_fs.get_file("song.mp3")
+        self.assertEqual(file['tag_title'], "My Song")
+        self.assertEqual(file['tag_artist'], "Artist")
+
+    def test_various_audio_extensions(self):
+        """Test that various audio extensions are recognized"""
+        for ext in ['mp3', 'wav', 'flac', 'aac', 'ogg']:
+            self.mock_fs.save_m(f"test.{ext}", duration=60, bitrate=128000)
+            file = self.mock_fs.get_file(f"test.{ext}")
+            self.assertEqual(file['size_bytes'], 60 * 128000 // 8)
+
+    def test_various_video_extensions(self):
+        """Test that various video extensions are recognized"""
+        for ext in ['mp4', 'avi', 'mkv', 'mov']:
+            self.mock_fs.save_m(f"video.{ext}", duration=120, bitrate=1000000)
+            file = self.mock_fs.get_file(f"video.{ext}")
+            self.assertEqual(file['size_bytes'], 120 * 1000000 // 8)
+
+
 class TestExists(unittest.TestCase):
     """Test the exists() function"""
 

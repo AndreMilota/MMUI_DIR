@@ -464,6 +464,145 @@ class MockFiles:
 
         return file_id
 
+    # Media type classifications
+    AUDIO_EXTENSIONS = frozenset(['mp3', 'wav', 'flac', 'aac', 'ogg', 'wma', 'm4a', 'opus'])
+    VIDEO_EXTENSIONS = frozenset(['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', 'mpeg', 'mpg'])
+    IMAGE_EXTENSIONS = frozenset(['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'webp', 'svg', 'ico'])
+
+    def save_m(
+        self,
+        name: str,
+        extension: Optional[str] = None,
+        tolerance: float = 0.05,
+        **kwargs
+    ) -> int:
+        """
+        Create/save a media file with automatic attribute computation.
+
+        Works like save() but for media files (audio, video, images). If given
+        partial attributes, computes missing ones where possible. If given
+        conflicting values, raises an error.
+
+        Relationships used for computation:
+        - Audio/Video: size_bytes = duration * bitrate / 8
+        - Given any 2 of (size_bytes, duration, bitrate), computes the 3rd
+
+        Args:
+            name: Filename (required). Can include extension or not.
+            extension: Optional explicit extension.
+            tolerance: Allowed relative difference for conflict detection (default 5%).
+                       Set to 0 for exact matching.
+            **kwargs: Media parameters:
+                - duration: Length in seconds
+                - bitrate: Bits per second
+                - size_bytes: File size in bytes
+                - codec: Codec name (e.g., 'mp3', 'h264')
+                - sample_rate: Audio sample rate in Hz
+                - channels: Number of audio channels
+                - framerate: Video frame rate (fps)
+                - resolution_width, resolution_height: Video/image dimensions
+                - image_format: Image format string
+                - Plus all standard file parameters (mtime, ctime, readonly, etc.)
+
+        Returns:
+            int: The file ID from the database
+
+        Raises:
+            ValueError: If attributes conflict (e.g., size != duration * bitrate / 8)
+                       or if extension is not a recognized media type when computing.
+
+        Example:
+            # Compute size from duration and bitrate
+            mock_fs.save_m("song.mp3", duration=180, bitrate=320000)
+            # size_bytes will be computed as 180 * 320000 / 8 = 7,200,000
+
+            # Compute duration from size and bitrate
+            mock_fs.save_m("track.mp3", size_bytes=4800000, bitrate=320000)
+            # duration will be computed as 4800000 * 8 / 320000 = 120 seconds
+
+            # All three provided - will check for conflicts
+            mock_fs.save_m("audio.mp3", size_bytes=7200000, duration=180, bitrate=320000)
+            # OK - values are consistent
+
+            # Conflicting values - raises error
+            mock_fs.save_m("bad.mp3", size_bytes=1000, duration=180, bitrate=320000)
+            # ValueError: size_bytes conflict: expected 7200000, got 1000
+        """
+        # Parse the extension to determine media type
+        from .file_record_builder import _NOT_PROVIDED
+
+        # Get extension from name or parameter
+        if extension is not None:
+            ext = extension.lower()
+        elif '.' in name and not name.startswith('.'):
+            ext = name.rsplit('.', 1)[1].lower()
+        elif name.startswith('.') and '.' in name[1:]:
+            ext = name.rsplit('.', 1)[1].lower()
+        else:
+            ext = self._file_builder._defaults.get('extension', '')
+
+        # Extract media-related kwargs
+        duration = kwargs.get('duration')
+        bitrate = kwargs.get('bitrate')
+        size_bytes = kwargs.get('size_bytes')
+
+        # Determine media type and compute missing values
+        is_audio = ext in self.AUDIO_EXTENSIONS
+        is_video = ext in self.VIDEO_EXTENSIONS
+        is_image = ext in self.IMAGE_EXTENSIONS
+
+        if is_audio or is_video:
+            # Compute missing values from the relationship: size = duration * bitrate / 8
+            provided = sum(x is not None for x in [duration, bitrate, size_bytes])
+
+            if provided == 2:
+                # Can compute the missing one
+                if size_bytes is None and duration is not None and bitrate is not None:
+                    size_bytes = int(duration * bitrate / 8)
+                    kwargs['size_bytes'] = size_bytes
+                elif duration is None and size_bytes is not None and bitrate is not None:
+                    duration = (size_bytes * 8) / bitrate
+                    kwargs['duration'] = duration
+                elif bitrate is None and size_bytes is not None and duration is not None:
+                    if duration > 0:
+                        bitrate = int((size_bytes * 8) / duration)
+                        kwargs['bitrate'] = bitrate
+                    else:
+                        raise ValueError("Cannot compute bitrate: duration must be > 0")
+
+            elif provided == 3:
+                # All three provided - check for conflicts
+                expected_size = duration * bitrate / 8
+
+                # Check if values are consistent within tolerance
+                if size_bytes > 0:
+                    relative_diff = abs(expected_size - size_bytes) / size_bytes
+                else:
+                    relative_diff = abs(expected_size - size_bytes)
+
+                if relative_diff > tolerance:
+                    raise ValueError(
+                        f"size_bytes conflict: expected {int(expected_size)} "
+                        f"(duration={duration} * bitrate={bitrate} / 8), got {size_bytes}. "
+                        f"Difference: {relative_diff:.1%} exceeds tolerance {tolerance:.1%}"
+                    )
+
+        # For images, we can't compute size from dimensions alone (depends on compression)
+        # but we can validate that dimensions are set together
+        if is_image:
+            width = kwargs.get('resolution_width')
+            height = kwargs.get('resolution_height')
+            if (width is None) != (height is None):
+                raise ValueError(
+                    "For images, resolution_width and resolution_height must both be set or both be unset"
+                )
+
+        # Now call save with the potentially updated kwargs
+        if extension is None:
+            return self.save(name, **kwargs)
+        else:
+            return self.save(name, extension=extension, **kwargs)
+
     def _get_cwd_directory_id(self) -> int:
         """
         Get the directory ID for the current working directory.
