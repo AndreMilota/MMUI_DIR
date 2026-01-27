@@ -1,0 +1,13 @@
+I need a function that will scan a directory in the mock file system into the FS system much as is done in fs_loader I guess we could call it vsf_Loader This should take the same arguments as the functions in fs_loader Except you need to provide either the database used by lock _files or a mock files object it self. You should also be able to provide a directory to do the scan from If no directory is provided then it will scan all of the “mounted” drives In the file system That is to say if there is a drive in this file system that does not have a letter assigned to it then that won’t be scanned. If the letter in the virtual file system is different for a particular disk than the one in the fs_database Then the letter should be changed in the FS _database. This match is achieved using the serial number or other information about the disk. In the real world we may have scenarios in which somebody scans a disk and it goes into the FS database and then at a later point they remount the disk and scan it again but now because other disks are present that letter is changed. The letter in the FS database is something that is updated whenever scans are done to reflect the current Location of the disks. In the case when the entire Mach file system is scanned all the disks which are not found in the FS database should have their letter fields cleared indicating they aren’t mounted at the moment. The time of the scan should also be a parameter that can be provided. If this is not provided then it should go and look for the oldest file in the mock file system to report as the time of scanning.
+Let me know if there are any questions I’m not sure I’ve thought through all the details yet.
+
+Where should the vsf_loader be placed?
+
+❯ 1. New file: vsf_load.py
+     Create as a sibling to fs_load.py in file_scan/
+  2. In mock_file_system module
+     Add as mock_file_system/vsf_load.py alongside mock_files.py
+  3. Add to mock_files.py
+     Add as methods on the MockFiles class itself
+  4. Type something.
+ I got down to 23% credits left for the week so I had to stop working on this.
