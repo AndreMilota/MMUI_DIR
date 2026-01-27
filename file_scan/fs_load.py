@@ -10,6 +10,11 @@ Default CLI usage (no args):
 From Python code:
     from fs_load import scan_path_into_db
     db = scan_path_into_db("C:\\Users\\owner\\Downloads", "file_database.sqlite")
+
+    # Or with a custom FSReader (e.g., for testing with mock file systems):
+    from fs_reader import FSReader, RealFSReader
+    reader = RealFSReader()
+    db = scan_path_into_db("C:\\path", "database.sqlite", reader=reader)
 """
 
 import os
@@ -17,11 +22,8 @@ from pathlib import Path
 from typing import Optional
 
 from fs_reader import (
-    get_volume_info,
-    iter_dirs,
-    iter_files_in_directory,
-    collect_full_record,
-    directory_fingerprint,
+    FSReader,
+    RealFSReader,
 )
 from fs_database import FSDatabase
 
@@ -35,7 +37,11 @@ def _normalize_dir_path(path: str) -> str:
     return p.as_posix()
 
 
-def scan_path_into_db(root_path: str, db_path: str) -> FSDatabase:
+def scan_path_into_db(
+    root_path: str,
+    db_path: str,
+    reader: Optional[FSReader] = None
+) -> FSDatabase:
     """
     Scan all directories and files under root_path and load/update them
     into the SQLite database at db_path.
@@ -45,7 +51,21 @@ def scan_path_into_db(root_path: str, db_path: str) -> FSDatabase:
     - Directories (including empty ones) are upserted into 'directories'.
     - Files are upserted into 'files'.
     - presence_state is maintained using the directory-level scan protocol.
+
+    Args:
+        root_path: The root directory to scan.
+        db_path: Path to the SQLite database file.
+        reader: Optional FSReader instance. If None, uses RealFSReader()
+                for scanning the real file system. Pass a custom FSReader
+                to scan mock/virtual file systems.
+
+    Returns:
+        FSDatabase instance with the scanned data.
     """
+    # Use default reader if none provided
+    if reader is None:
+        reader = RealFSReader()
+
     # Ensure absolute path
     root_path = os.path.abspath(root_path)
 
@@ -53,7 +73,7 @@ def scan_path_into_db(root_path: str, db_path: str) -> FSDatabase:
     db = FSDatabase(db_path)
 
     # ----- Volume -------------------------------------------------------
-    vinfo = get_volume_info(root_path)
+    vinfo = reader.get_volume_info(root_path)
     volume_id = db.upsert_volume(
         volume_key=vinfo["volume_key"],
         root_path=vinfo.get("root_path"),
@@ -64,9 +84,9 @@ def scan_path_into_db(root_path: str, db_path: str) -> FSDatabase:
 
     # ----- Directories + files -----------------------------------------
     # We now drive the scan by directories, including empty ones.
-    for dir_path_raw in iter_dirs(root_path):
+    for dir_path_raw in reader.iter_dirs(root_path):
         dir_norm = _normalize_dir_path(dir_path_raw)
-        dir_fp = directory_fingerprint(dir_path_raw)
+        dir_fp = reader.directory_fingerprint(dir_path_raw)
 
         # Upsert the directory row (one per volume_id + dir_path)
         directory_id = db.upsert_directory(
@@ -79,8 +99,8 @@ def scan_path_into_db(root_path: str, db_path: str) -> FSDatabase:
         db.begin_directory_scan(directory_id)
 
         # For each file directly in this directory, upsert the file record.
-        for entry, st in iter_files_in_directory(dir_path_raw):
-            rec = collect_full_record(dir_path_raw, entry, st)
+        for entry, st in reader.iter_files_in_directory(dir_path_raw):
+            rec = reader.collect_full_record(dir_path_raw, entry, st)
             db.upsert_file_record(
                 directory_id=directory_id,
                 record=rec,

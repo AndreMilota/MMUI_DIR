@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python fs_load.py:*)",
+      "Bash(python:*)"
+    ]
+  }
+}
