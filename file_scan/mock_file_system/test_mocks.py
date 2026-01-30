@@ -1404,5 +1404,177 @@ class TestMovedir(unittest.TestCase):
             self.mock_fs.movedir("C:\\nonexistent", "C:\\dest")
 
 
+class TestMockClock(unittest.TestCase):
+    """Test the mock clock functionality"""
+
+    def setUp(self):
+        """Create a temporary database for each test"""
+        self.temp_db = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.db')
+        self.temp_db.close()
+        self.db_path = self.temp_db.name
+        self.mock_fs = MockFiles(self.db_path)
+        self.mock_fs.mount_volume(drive_letter='C')
+
+    def tearDown(self):
+        """Clean up temporary database"""
+        self.mock_fs.db.close()
+        if os.path.exists(self.db_path):
+            os.unlink(self.db_path)
+
+    def test_get_time_returns_default(self):
+        """Test that default clock is 2025-01-01 00:00:00 in nanoseconds"""
+        expected = self.mock_fs._file_builder.parse_time("2025-01-01 00:00:00")
+        self.assertEqual(self.mock_fs.get_time(), expected)
+
+    def test_set_time_with_nanoseconds(self):
+        """Test setting clock with nanoseconds integer"""
+        self.mock_fs.set_time(5_000_000_000)
+        self.assertEqual(self.mock_fs.get_time(), 5_000_000_000)
+
+    def test_set_time_with_string(self):
+        """Test setting clock with human-readable string"""
+        self.mock_fs.set_time("2024-06-15 12:00:00")
+        expected = self.mock_fs._file_builder.parse_time("2024-06-15 12:00:00")
+        self.assertEqual(self.mock_fs.get_time(), expected)
+
+    def test_increment_time(self):
+        """Test incrementing clock by a specific amount"""
+        initial = self.mock_fs.get_time()
+        self.mock_fs.increment_time(5_000_000_000)  # 5 seconds
+        self.assertEqual(self.mock_fs.get_time(), initial + 5_000_000_000)
+
+    def test_save_advances_clock(self):
+        """Test that save() advances the clock by 1 second"""
+        time_before = self.mock_fs.get_time()
+        self.mock_fs.save("test.txt")
+        time_after = self.mock_fs.get_time()
+        self.assertEqual(time_after, time_before + MockFiles.ONE_SECOND_NS)
+
+    def test_save_uses_clock_for_timestamps(self):
+        """Test that save without mtime/ctime uses clock time"""
+        clock_time = self.mock_fs.get_time()
+        self.mock_fs.save("test.txt")
+        file = self.mock_fs.get_file("test.txt")
+        self.assertEqual(file['mtime_ns'], clock_time)
+        self.assertEqual(file['ctime_ns'], clock_time)
+
+    def test_save_explicit_time_overrides_clock(self):
+        """Test that explicit mtime overrides clock"""
+        explicit_time = self.mock_fs._file_builder.parse_time("2024-06-15 12:00:00")
+        self.mock_fs.save("test.txt", mtime="2024-06-15 12:00:00")
+        file = self.mock_fs.get_file("test.txt")
+        self.assertEqual(file['mtime_ns'], explicit_time)
+
+    def test_sticky_default_overrides_clock(self):
+        """Test that sticky mtime default overrides clock"""
+        self.mock_fs.set_file_defaults(mtime="2023-01-01 00:00:00")
+        sticky_time = self.mock_fs._file_builder.parse_time("2023-01-01 00:00:00")
+        self.mock_fs.save("test.txt")
+        file = self.mock_fs.get_file("test.txt")
+        self.assertEqual(file['mtime_ns'], sticky_time)
+
+    def test_multiple_saves_get_different_times(self):
+        """Test that 3 files get timestamps 1 second apart"""
+        t0 = self.mock_fs.get_time()
+        self.mock_fs.save("file1.txt")
+        self.mock_fs.save("file2.txt")
+        self.mock_fs.save("file3.txt")
+
+        f1 = self.mock_fs.get_file("file1.txt")
+        f2 = self.mock_fs.get_file("file2.txt")
+        f3 = self.mock_fs.get_file("file3.txt")
+
+        self.assertEqual(f1['mtime_ns'], t0)
+        self.assertEqual(f2['mtime_ns'], t0 + MockFiles.ONE_SECOND_NS)
+        self.assertEqual(f3['mtime_ns'], t0 + 2 * MockFiles.ONE_SECOND_NS)
+
+    def test_mkdir_advances_clock(self):
+        """Test that mkdir advances the clock"""
+        time_before = self.mock_fs.get_time()
+        self.mock_fs.mkdir("C:\\TestDir")
+        time_after = self.mock_fs.get_time()
+        self.assertEqual(time_after, time_before + MockFiles.ONE_SECOND_NS)
+
+    def test_rmdir_advances_clock(self):
+        """Test that rmdir advances the clock"""
+        self.mock_fs.mkdir("C:\\TempDir")
+        time_before = self.mock_fs.get_time()
+        self.mock_fs.rmdir("C:\\TempDir")
+        time_after = self.mock_fs.get_time()
+        self.assertEqual(time_after, time_before + MockFiles.ONE_SECOND_NS)
+
+    def test_delete_advances_clock(self):
+        """Test that delete advances the clock"""
+        self.mock_fs.save("to_delete.txt")
+        time_before = self.mock_fs.get_time()
+        self.mock_fs.delete("to_delete.txt")
+        time_after = self.mock_fs.get_time()
+        self.assertEqual(time_after, time_before + MockFiles.ONE_SECOND_NS)
+
+    def test_copy_advances_clock(self):
+        """Test that copy advances the clock once (not per file)"""
+        self.mock_fs.save("file1.txt")
+        self.mock_fs.save("file2.txt")
+        self.mock_fs.mkdir("C:\\dest")
+        time_before = self.mock_fs.get_time()
+        self.mock_fs.copy("*.txt", "C:\\dest")
+        time_after = self.mock_fs.get_time()
+        self.assertEqual(time_after, time_before + MockFiles.ONE_SECOND_NS)
+
+    def test_move_advances_clock(self):
+        """Test that move advances the clock once"""
+        self.mock_fs.save("moveme.txt")
+        self.mock_fs.mkdir("C:\\dest")
+        time_before = self.mock_fs.get_time()
+        self.mock_fs.move("moveme.txt", "C:\\dest")
+        time_after = self.mock_fs.get_time()
+        self.assertEqual(time_after, time_before + MockFiles.ONE_SECOND_NS)
+
+    def test_set_attributes_advances_clock(self):
+        """Test that set_attributes advances the clock"""
+        self.mock_fs.save("attrs.txt")
+        time_before = self.mock_fs.get_time()
+        self.mock_fs.set_attributes("attrs.txt", size_bytes=999)
+        time_after = self.mock_fs.get_time()
+        self.assertEqual(time_after, time_before + MockFiles.ONE_SECOND_NS)
+
+    def test_copydir_advances_clock(self):
+        """Test that copydir advances the clock"""
+        self.mock_fs.mkdir("C:\\source")
+        self.mock_fs.cd("C:\\source")
+        self.mock_fs.save("file.txt")
+        self.mock_fs.cd("C:\\")
+        time_before = self.mock_fs.get_time()
+        self.mock_fs.copydir("C:\\source", "C:\\dest")
+        time_after = self.mock_fs.get_time()
+        self.assertGreater(time_after, time_before)
+
+    def test_movedir_advances_clock(self):
+        """Test that movedir advances the clock"""
+        self.mock_fs.mkdir("C:\\olddir")
+        self.mock_fs.cd("C:\\olddir")
+        self.mock_fs.save("file.txt")
+        self.mock_fs.cd("C:\\")
+        time_before = self.mock_fs.get_time()
+        self.mock_fs.movedir("C:\\olddir", "C:\\newdir")
+        time_after = self.mock_fs.get_time()
+        self.assertEqual(time_after, time_before + MockFiles.ONE_SECOND_NS)
+
+    def test_copy_no_preserve_uses_clock(self):
+        """Test that copy with preserve_timestamps=False uses clock time"""
+        self.mock_fs.save("original.txt")
+        # Use set_attributes to change the file's timestamps without affecting sticky defaults
+        self.mock_fs.set_attributes("original.txt",
+                                    mtime="2020-01-01 00:00:00",
+                                    ctime="2020-01-01 00:00:00")
+        self.mock_fs.mkdir("C:\\dest")
+        clock_before_copy = self.mock_fs.get_time()
+        self.mock_fs.copy("original.txt", "C:\\dest", preserve_timestamps=False)
+
+        copy = self.mock_fs.get_file("C:\\dest\\original.txt")
+        self.assertEqual(copy['mtime_ns'], clock_before_copy)
+        self.assertEqual(copy['ctime_ns'], clock_before_copy)
+
+
 if __name__ == '__main__':
     unittest.main()

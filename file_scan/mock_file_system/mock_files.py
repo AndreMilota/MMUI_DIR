@@ -29,6 +29,8 @@ from ..fs_database import FSDatabase
 from .file_record_builder import FileRecordBuilder
 
 class MockFiles:
+    ONE_SECOND_NS = 1_000_000_000
+
     def __init__(self, db_path):
         """
         Initialize the mock file system.
@@ -79,6 +81,39 @@ class MockFiles:
 
         # Initialize the file record builder for managing file defaults
         self._file_builder = FileRecordBuilder()
+
+        # Mock clock: auto-advances by 1 second on each filesystem-modifying operation
+        self._current_time_ns = self._file_builder.parse_time("2025-01-01 00:00:00")
+
+    # =========================================================================
+    # Mock Clock
+    # =========================================================================
+
+    def get_time(self) -> int:
+        """Return current mock clock time in nanoseconds."""
+        return self._current_time_ns
+
+    def set_time(self, time_value) -> None:
+        """
+        Set mock clock. Accepts nanoseconds (int) or human-readable string.
+
+        Args:
+            time_value: Nanoseconds (int) or parseable time string/datetime object.
+        """
+        self._current_time_ns = self._file_builder.parse_time(time_value)
+
+    def increment_time(self, nanoseconds: int) -> None:
+        """
+        Advance mock clock by the given number of nanoseconds.
+
+        Args:
+            nanoseconds: Number of nanoseconds to advance.
+        """
+        self._current_time_ns += nanoseconds
+
+    def _advance_time(self) -> None:
+        """Internal: advance clock by 1 second."""
+        self._current_time_ns += self.ONE_SECOND_NS
 
     def mount_volume(self, drive_letter=None, label=None, filesystem=None, serial_number=None):
         """
@@ -303,6 +338,8 @@ class MockFiles:
             # Create the directory
             self.db.upsert_directory(volume_id, dir_path_db)
 
+        self._advance_time()
+
     def rmdir(self, path):
         """
         Remove a directory from the database.
@@ -362,6 +399,7 @@ class MockFiles:
             WHERE id = ?
         """, (dir_id,))
         self.db.conn.commit()
+        self._advance_time()
 
     def set_file_defaults(self, **kwargs) -> None:
         """
@@ -456,12 +494,19 @@ class MockFiles:
         else:
             record = self._file_builder.build_record(name, extension=extension, **kwargs)
 
+        # Fill in mock clock time where sticky defaults are unset (None)
+        if record['mtime_ns'] is None:
+            record['mtime_ns'] = self._current_time_ns
+        if record['ctime_ns'] is None:
+            record['ctime_ns'] = self._current_time_ns
+
         # Get the directory ID for cwd
         dir_id = self._get_cwd_directory_id()
 
         # Insert into database
         file_id = self.db.upsert_file_record(dir_id, record)
 
+        self._advance_time()
         return file_id
 
     # Media type classifications
@@ -1027,6 +1072,7 @@ class MockFiles:
         cursor.execute("DELETE FROM files WHERE id = ?", (file_id,))
         self.db.conn.commit()
 
+        self._advance_time()
         return True
 
     # Alias for delete
@@ -1092,6 +1138,7 @@ class MockFiles:
         """, values)
         self.db.conn.commit()
 
+        self._advance_time()
         return True
 
     def find(self, pattern: str, path: str = None, recursive: bool = True) -> List[str]:
@@ -1264,16 +1311,17 @@ class MockFiles:
                 new_record['mtime_ns'] = src_record.get('mtime_ns')
                 new_record['ctime_ns'] = src_record.get('ctime_ns')
             else:
-                # Use current defaults
+                # Use current defaults; fall back to mock clock if unset
                 mtime = self._file_builder._defaults.get('mtime')
                 ctime = self._file_builder._defaults.get('ctime')
-                new_record['mtime_ns'] = self._file_builder.parse_time(mtime)
-                new_record['ctime_ns'] = self._file_builder.parse_time(ctime)
+                new_record['mtime_ns'] = self._file_builder.parse_time(mtime) if mtime is not None else self._current_time_ns
+                new_record['ctime_ns'] = self._file_builder.parse_time(ctime) if ctime is not None else self._current_time_ns
 
             # Insert into database
             self.db.upsert_file_record(dir_id, new_record)
             count += 1
 
+        self._advance_time()
         return count
 
     def move(self, source: str, dest: str) -> int:
@@ -1349,6 +1397,7 @@ class MockFiles:
             count += 1
 
         self.db.conn.commit()
+        self._advance_time()
         return count
 
     # =========================================================================
@@ -1457,6 +1506,7 @@ class MockFiles:
             self.db.upsert_file_record(dest_dir_row['id'], new_record)
             count += 1
 
+        self._advance_time()
         return count
 
     def movedir(self, source: str, dest: str) -> int:
@@ -1512,4 +1562,5 @@ class MockFiles:
 
         self.db.conn.commit()
 
+        self._advance_time()
         return count

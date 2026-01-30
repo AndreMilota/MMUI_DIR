@@ -200,6 +200,38 @@ mock_fs.save(
 )
 ```
 
+### Mock clock (auto-advancing time)
+
+`MockFiles` includes a mock clock that starts at `2025-01-01 00:00:00` and
+auto-advances by **1 second** every time a filesystem-modifying operation
+completes (`save`, `mkdir`, `rmdir`, `delete`, `set_attributes`, `copy`,
+`move`, `copydir`, `movedir`).
+
+When a file is created with `save()` and no `mtime`/`ctime` is specified
+(either explicitly or via a sticky default), the mock clock provides the
+timestamp.
+
+**Priority order for timestamps:**
+1. Explicit kwarg in the `save()` call (also becomes the sticky default)
+2. Sticky default (non-`None`) set via `set_file_defaults()`
+3. Mock clock value (used when neither of the above is set)
+
+```python
+mock_fs = MockFiles(":memory:")
+mock_fs.mount_volume()
+
+# Read / set / increment the clock
+print(mock_fs.get_time())                   # nanoseconds since epoch
+mock_fs.set_time("2025-06-15 12:00:00")     # accepts string or int (ns)
+mock_fs.increment_time(5_000_000_000)       # advance by 5 seconds
+
+# Auto-advancing: each save() advances by 1 second
+mock_fs.set_time("2025-01-01 00:00:00")
+mock_fs.save("file1.txt")   # gets mtime/ctime = 2025-01-01 00:00:00
+mock_fs.save("file2.txt")   # gets mtime/ctime = 2025-01-01 00:00:01
+mock_fs.save("file3.txt")   # gets mtime/ctime = 2025-01-01 00:00:02
+```
+
 ### Running the tests
 
 ```powershell
