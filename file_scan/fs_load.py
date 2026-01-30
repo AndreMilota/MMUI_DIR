@@ -36,11 +36,11 @@ def _normalize_dir_path(path: str) -> str:
     p = Path(path).resolve()
     return p.as_posix()
 
-
+# if you set the reader to a file path it will create a MockFiles object to use a
 def scan_path_into_db(
     root_path: str,
     db_path: str,
-    reader: Optional[FSReader] = None
+    reader: FSReader | str | None = None
 ) -> FSDatabase:
     """
     Scan all directories and files under root_path and load/update them
@@ -65,6 +65,9 @@ def scan_path_into_db(
     # Use default reader if none provided
     if reader is None:
         reader = RealFSReader()
+    elif isinstance(reader, str):
+        from fs_reader import MockFSReader
+        reader = MockFSReader.from_file(reader)
 
     # Ensure absolute path
     root_path = os.path.abspath(root_path)
