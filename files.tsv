@@ -1,0 +1,6 @@
+id	directory_id	name	extension	size_bytes	mtime_ns	ctime_ns	size_on_disk	readonly	system	is_symlink	presence_state	duration	bitrate	codec	framerate	image_format	resolution_width	resolution_height	sample_rate	channels	tag_title	tag_artist	tag_album	tag_album_artist	tag_track	tag_date
+1	1	file_0	txt	100	1767297601000000000	1767297601000000000		0	0	0	2															
+2	1	file_1	txt	101	1767297602000000000	1767297602000000000		0	0	0	2															
+3	1	file_2	txt	102	1767297603000000000	1767297603000000000		0	0	0	0															
+4	1	file_3	txt	103	1767297604000000000	1767297604000000000		0	0	0	0															
+5	1	file_4	txt	104	1767297605000000000	1767297605000000000		0	0	0	0															

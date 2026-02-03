@@ -17,5 +17,7 @@ file_scan/directories.tsv
 file_scan/files.tsv
 file_scan/tests/junk_sanity.txt
 file_scan/volumes.tsv
-
+directories.tsv
+files.tsv
+volumes.tsv
 *.sqlite
