@@ -27,11 +27,11 @@ From Python code:
 
 import os
 from pathlib import Path
-from fs_reader import (
+from .fs_reader import (
     FSReader,
     RealFSReader,
 )
-from fs_database import FSDatabase
+from .fs_database import FSDatabase
 
 
 def _normalize_dir_path(path: str) -> str:
@@ -77,7 +77,7 @@ def scan_path_into_db(
     if reader is None:
         reader = RealFSReader()
     elif isinstance(reader, str):
-        from fs_reader import MockFSReader
+        from .fs_reader import MockFSReader
         reader = MockFSReader.from_file(reader)
 
     # Ensure absolute path
