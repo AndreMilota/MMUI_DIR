@@ -63,5 +63,9 @@ def test_1():
     # print the directory listing from the database
     ls(fs)
 
+    # get a fresh database
+    db = get_fresh_database()
+
+
 if __name__ == "__main__":
     test_1()
