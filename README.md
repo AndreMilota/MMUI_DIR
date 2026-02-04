@@ -58,7 +58,13 @@ python scripts/test_groq.py
 python scripts/hello_langgraph.py
 ```
 
-**3) Database quick test** – create/seed the database (if missing), then read a few rows.
+**3) Mock file-system smoke test** – creates a `MockFiles` instance, saves a file, and prints a directory listing with human-readable timestamps.
+```powershell
+python -m scripts.simple_agent_tests
+```
+Expected output: one row showing `beatles_best_of.mp3` with size and created/modified timestamps.
+
+**4) Database quick test** – create/seed the database (if missing), then read a few rows.
 ```powershell
 python scripts/db_smoketest.py
 python scripts/db_query.py
@@ -101,6 +107,7 @@ MMUI_DIR/
     db_smoketest.py       # create/seed table
     db_query.py           # read a few rows
     print_tree.py         # prints & copies folder tree
+    simple_agent_tests.py # MockFiles smoke test with directory listing
     visualize_graph.py    # ASCII + Mermaid graph
   docs/
     graph.md              # Mermaid diagram (generated)
