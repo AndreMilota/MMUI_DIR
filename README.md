@@ -108,6 +108,7 @@ MMUI_DIR/
     db_query.py           # read a few rows
     print_tree.py         # prints & copies folder tree
     simple_agent_tests.py # MockFiles smoke test with directory listing
+    clean_temp_files.py   # delete .tsv and .sqlite temp files
     visualize_graph.py    # ASCII + Mermaid graph
   docs/
     graph.md              # Mermaid diagram (generated)
@@ -296,6 +297,18 @@ You will see the tree on screen. The script also attempts to copy the same text 
 ### Running from PyCharm
 - Right‑click `scripts/print_tree.py` → **Run 'print_tree'**.
 - To set options, create a Run Configuration and add arguments (for example: `. --max-depth 6`).
+
+---
+
+## Cleaning up temporary files
+
+Test scripts and scan operations create `.tsv` (tab-separated exports) and `.sqlite` database files throughout the project. These are already git-ignored, but they can accumulate. Use `clean_temp_files.py` to remove them.
+
+```powershell
+python -m scripts.clean_temp_files            # list files and confirm before deleting
+python -m scripts.clean_temp_files --dry-run  # list files without deleting
+python -m scripts.clean_temp_files --yes      # delete without confirmation
+```
 
 ---
 
