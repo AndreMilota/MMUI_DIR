@@ -9,9 +9,17 @@ Default CLI usage (no args):
 
 From Python code:
     from fs_load import scan_path_into_db
+
+    # With an explicit database path:
     db = scan_path_into_db("C:\\Users\\owner\\Downloads", "file_database.sqlite")
 
-    # Or with a custom FSReader (e.g., for testing with mock file systems):
+    # With an existing FSDatabase instance (scan is added into it):
+    db = scan_path_into_db("C:\\path", existing_db)
+
+    # With no database specified (defaults to file_database.sqlite):
+    db = scan_path_into_db("C:\\path")
+
+    # With a custom FSReader (e.g., for testing with mock file systems):
     from fs_reader import FSReader, RealFSReader
     reader = RealFSReader()
     db = scan_path_into_db("C:\\path", "database.sqlite", reader=reader)
@@ -19,8 +27,6 @@ From Python code:
 
 import os
 from pathlib import Path
-from typing import Optional
-
 from fs_reader import (
     FSReader,
     RealFSReader,
@@ -39,12 +45,12 @@ def _normalize_dir_path(path: str) -> str:
 # if you set the reader to a file path it will create a MockFiles object to use a
 def scan_path_into_db(
     root_path: str,
-    db_path: str,
+    db: FSDatabase | str | None = None,
     reader: FSReader | str | None = None
 ) -> FSDatabase:
     """
     Scan all directories and files under root_path and load/update them
-    into the SQLite database at db_path.
+    into an SQLite database.
 
     - If the database does not exist, it is created.
     - Volume metadata is upserted into 'volumes'.
@@ -54,10 +60,15 @@ def scan_path_into_db(
 
     Args:
         root_path: The root directory to scan.
-        db_path: Path to the SQLite database file.
+        db: An FSDatabase instance, a path string to an SQLite file, or None.
+            If None, defaults to "file_database.sqlite" in the same
+            directory as this script.
+            If an FSDatabase, the scan is added into it directly.
+            If a string, a new FSDatabase is opened/created at that path.
         reader: Optional FSReader instance. If None, uses RealFSReader()
                 for scanning the real file system. Pass a custom FSReader
-                to scan mock/virtual file systems.
+                to scan mock/virtual file systems, or a string path to
+                create a MockFSReader from a file.
 
     Returns:
         FSDatabase instance with the scanned data.
@@ -72,8 +83,12 @@ def scan_path_into_db(
     # Ensure absolute path
     root_path = os.path.abspath(root_path)
 
-    # Create/open the database (this will create tables if needed)
-    db = FSDatabase(db_path)
+    # Resolve database
+    if db is None:
+        script_dir = Path(__file__).resolve().parent
+        db = FSDatabase(str(script_dir / "file_database.sqlite"))
+    elif isinstance(db, str):
+        db = FSDatabase(db)
 
     # ----- Volume -------------------------------------------------------
     vinfo = reader.get_volume_info(root_path)
