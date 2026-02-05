@@ -6,6 +6,7 @@ from datetime import datetime
 from file_scan.fs_database import FSDatabase
 from file_scan.fs_load import scan_path_into_db
 from file_scan.mock_file_system.mock_files import MockFiles
+from file_scan.mock_file_system.mock_fs_reader import MockFSReader
 
 
 def ns_to_str(ns_value):
@@ -66,6 +67,19 @@ def test_1():
     # get a fresh database
     db = get_fresh_database()
 
+    # scan the virtual file system into the database
+    reader = MockFSReader(fs)
+    scan_path_into_db(root_path="C:/", db=db, reader=reader)
+
+    # export the database to verify contents using the existing export function
+    from pathlib import Path
+    from file_scan.tests.export_db import export_all_tables
+
+    export_all_tables(
+        db_path=Path(db.db_path),
+        out_dir=Path(os.path.dirname(db.db_path) or "."),
+        tables=["volumes", "directories", "files"],
+    )
 
 if __name__ == "__main__":
     test_1()
