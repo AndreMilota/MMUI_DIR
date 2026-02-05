@@ -73,7 +73,7 @@ def execute_sql(state: State) -> State:
         return state
 
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(state.get("db_path") or DB_PATH)
         conn.row_factory = sqlite3.Row  # Return rows as dictionaries
         cursor = conn.cursor()
 

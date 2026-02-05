@@ -75,11 +75,37 @@ def test_1():
     from pathlib import Path
     from file_scan.tests.export_db import export_all_tables
 
-    export_all_tables(
-        db_path=Path(db.db_path),
-        out_dir=Path(os.path.dirname(db.db_path) or "."),
-        tables=["volumes", "directories", "files"],
-    )
+    # export_all_tables(
+    #     db_path=Path(db.db_path),
+    #     out_dir=Path(os.path.dirname(db.db_path) or "."),
+    #     tables=["volumes", "directories", "files"],
+    # )
+
+    # ------------------------------------------------------------------
+    # Run the LangGraph query pipeline against the scan database
+    # ------------------------------------------------------------------
+    from app.runner import run_query
+
+    # The mock file was created at 2026-01-01 12:00:00.
+    # Set "now" two weeks later so the file counts as "more than a week old".
+    query = "How many mp3 files do I have that are more than a week old?"
+    print(f"\n{'='*60}")
+    print(f"USER QUERY: {query}")
+    print(f"{'='*60}\n")
+
+    result = run_query(query, now="2026-01-15 12:00:00", db_path=db.db_path)
+
+    print(f"GENERATED SQL:\n{result['sql']}\n")
+    print(f"{'='*60}")
+
+    if result.get('error'):
+        print(f"ERROR: {result['error']}\n")
+    else:
+        print(f"FOUND {len(result.get('results', []))} ROWS\n")
+        print(f"RESPONSE:\n{result.get('response')}\n")
+
+    print(f"{'='*60}\n")
+
 
 if __name__ == "__main__":
     test_1()

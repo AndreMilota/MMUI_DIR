@@ -8,7 +8,7 @@ from app.graph import build_app
 from app.utills.time_utils import parse_human_time, now_ns_and_iso_from_dt
 
 
-def run_query(user_text: str, now: Optional[str] = None) -> Dict[str, Any]:
+def run_query(user_text: str, now: Optional[str] = None, db_path: Optional[str] = None) -> Dict[str, Any]:
     """
     Run a natural language query against the file_scan database.
 
@@ -17,6 +17,8 @@ def run_query(user_text: str, now: Optional[str] = None) -> Dict[str, Any]:
         now: Optional human-readable time string. If provided it will be used
              as the current time for relative-time queries. If omitted the
              system clock is used and a message is printed.
+        db_path: Optional path to SQLite database. If omitted the
+                 auto-discovered default is used.
 
     Returns:
         Dictionary with 'sql', 'results', 'response', and optionally 'error'
@@ -45,6 +47,8 @@ def run_query(user_text: str, now: Optional[str] = None) -> Dict[str, Any]:
         "now_ns": ns,
         "now_iso": iso,
     }
+    if db_path is not None:
+        state_in["db_path"] = db_path
 
     state_out = app.invoke(state_in)
 

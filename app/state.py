@@ -19,3 +19,6 @@ class State(TypedDict, total=False):
 
     # Natural language response
     response: Optional[str]             # LLM-generated response to user
+
+    # Database override
+    db_path: Optional[str]              # Path to SQLite database (default: auto-discovered)
