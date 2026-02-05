@@ -94,10 +94,16 @@ MMUI_DIR/
       __init__.py
       sql.py              # tiny helper for SQLite (db/files.db)
   file_scan/
+    fs_reader.py          # FSReader ABC + RealFSReader (OS-level file iteration)
     fs_database.py        # SQLite-backed file tracking database
+    fs_load.py            # scan_path_into_db() — ties reader + database together
     mock_file_system/
       mock_files.py       # mock file system for testing
+      mock_fs_reader.py   # MockFSReader — FSReader adapter for MockFiles
       file_record_builder.py  # file record construction with defaults
+      test_fs_reader_using_mocks.py  # end-to-end scan test using MockFSReader
+    tests/
+      export_db.py        # export database tables to TSV files
   db/
     files.db              # created by db_smoketest.py
     memory/               # per-session JSON memory files
@@ -240,11 +246,128 @@ mock_fs.save("file2.txt")   # gets mtime/ctime = 2025-01-01 00:00:01
 mock_fs.save("file3.txt")   # gets mtime/ctime = 2025-01-01 00:00:02
 ```
 
+### MockFSReader — scanning a mock file system
+
+`MockFSReader` is an `FSReader` adapter that lets `scan_path_into_db()` scan a
+`MockFiles` instance through the exact same code path used for the real OS.
+This means tests exercise the full scan pipeline (volume upsert, directory
+iteration, file upsert, presence-state tracking) without touching the real
+file system.
+
+```python
+from file_scan.mock_file_system.mock_files import MockFiles
+from file_scan.mock_file_system.mock_fs_reader import MockFSReader
+from file_scan.fs_load import scan_path_into_db
+
+# Build a virtual filesystem
+vfs = MockFiles("test_vfs.sqlite")
+vfs.set_time("2026-01-01 12:00:00")
+vfs.mount_volume(drive_letter='C')
+vfs.mkdir("C:\\data")
+vfs.cd("C:\\data")
+vfs.save("report.txt", size_bytes=512)
+
+# Scan it into a separate database — just like scanning a real directory
+reader = MockFSReader(vfs)
+scan_db = scan_path_into_db("C:\\data", "scan_output.sqlite", reader=reader)
+```
+
+You can also create a `MockFSReader` directly from an existing MockFiles
+database file:
+
+```python
+reader = MockFSReader.from_file("test_vfs.sqlite")
+# The clock is automatically set past the latest file timestamp
+```
+
+### Scan timestamps (`now()`)
+
+Every `FSReader` has a `now()` method that returns the current time in
+nanoseconds. The scan loop in `fs_load.py` calls `reader.now()` to populate
+the `last_scan_started_ns` and `last_scan_completed_ns` columns on each
+directory row:
+
+- **`RealFSReader.now()`** — returns wall-clock time via `time.time_ns()`.
+- **`MockFSReader.now()`** — reads the MockFiles clock, then auto-advances it
+  by 1 second. Each call returns a unique, sequential timestamp.
+
+This guarantees that scan timestamps are always chronologically after all
+file-creation timestamps in the mock, avoiding time paradoxes in tests.
+
+**Timestamp flow example** (MockFiles clock at `2026-01-01 12:00:00`, then
+5 files saved, then `mkdir`):
+
+| Step | Clock reads | Column written |
+|------|------------|---------------|
+| Files created (5 saves) | 12:00:01 – 12:00:05 | `mtime_ns` / `ctime_ns` on files |
+| `mkdir` | 12:00:06 | *(clock advances)* |
+| `reader.now()` for scan start | 12:00:06 → clock becomes 12:00:07 | `last_scan_started_ns` |
+| Files iterated | *(read-only, no clock change)* | |
+| `reader.now()` for scan end | 12:00:07 → clock becomes 12:00:08 | `last_scan_completed_ns` |
+
+### Running a real scan
+
+`fs_load.py` scans a real directory and writes results (including scan
+timestamps) to a SQLite database. It can be run as a module or directly:
+
+```powershell
+python -m file_scan.fs_load                          # scans ~/Downloads by default
+python -m file_scan.fs_load "C:\Users\owner\Music"   # scan a specific path
+```
+
+You can also run the file directly from PyCharm or the command line:
+```powershell
+python file_scan/fs_load.py
+```
+
+After scanning, use `export_db.py` (see below) to inspect the results with
+human-readable timestamps.
+
 ### Running the tests
 
 ```powershell
 python -m pytest file_scan/mock_file_system/test_mocks.py -v
 python -m pytest file_scan/mock_file_system/test_file_record_builder.py -v
+```
+
+**End-to-end scan test** — exercises MockFSReader + `scan_path_into_db`, verifies
+presence-state tracking and scan timestamp ordering:
+```powershell
+python -m file_scan.mock_file_system.test_fs_reader_using_mocks
+```
+
+---
+
+## Exporting the scan database to TSV
+
+`file_scan/tests/export_db.py` exports the three scan-database tables
+(`volumes`, `directories`, `files`) to tab-delimited `.tsv` files you can
+open in Excel or any spreadsheet program.
+
+```powershell
+python -m file_scan.tests.export_db                        # default DB (file_scan/file_database.sqlite)
+python -m file_scan.tests.export_db path\to\other.sqlite   # explicit DB path
+```
+
+By default, all nanosecond timestamp columns (`mtime_ns`, `ctime_ns`,
+`last_scan_started_ns`, `last_scan_completed_ns`) are exported as
+human-readable datetime strings (e.g. `2026-01-07 22:16:54`) and the
+`_ns` suffix is stripped from the column header.
+
+To keep the raw nanosecond integers and original column names:
+
+```powershell
+python -m file_scan.tests.export_db --raw-timestamps
+```
+
+The `export_table_to_tsv` function also accepts a `raw_timestamps` keyword
+argument for programmatic use:
+
+```python
+from file_scan.tests.export_db import export_table_to_tsv
+
+export_table_to_tsv(conn, "files", Path("files.tsv"))                    # human-readable (default)
+export_table_to_tsv(conn, "files", Path("files.tsv"), raw_timestamps=True)  # raw nanoseconds
 ```
 
 ---

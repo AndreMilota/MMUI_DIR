@@ -26,12 +26,18 @@ From Python code:
 """
 
 import os
+import sys
 from pathlib import Path
-from .fs_reader import (
-    FSReader,
-    RealFSReader,
-)
-from .fs_database import FSDatabase
+
+# Support both `python -m file_scan.fs_load` and direct `python fs_load.py`
+try:
+    from .fs_reader import FSReader, RealFSReader
+    from .fs_database import FSDatabase
+except ImportError:
+    # Running as a standalone script — add parent dir to sys.path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from file_scan.fs_reader import FSReader, RealFSReader
+    from file_scan.fs_database import FSDatabase
 
 
 def _normalize_dir_path(path: str) -> str:
@@ -77,7 +83,10 @@ def scan_path_into_db(
     if reader is None:
         reader = RealFSReader()
     elif isinstance(reader, str):
-        from .fs_reader import MockFSReader
+        try:
+            from .mock_file_system.mock_fs_reader import MockFSReader
+        except ImportError:
+            from file_scan.mock_file_system.mock_fs_reader import MockFSReader
         reader = MockFSReader.from_file(reader)
 
     # Ensure absolute path
@@ -114,7 +123,7 @@ def scan_path_into_db(
         )
 
         # Start a scan for this directory: mark existing files as PENDING_SCAN
-        db.begin_directory_scan(directory_id)
+        db.begin_directory_scan(directory_id, scan_started_ns=reader.now())
 
         # For each file directly in this directory, upsert the file record.
         for entry, st in reader.iter_files_in_directory(dir_path_raw):
@@ -126,7 +135,7 @@ def scan_path_into_db(
 
         # End the scan for this directory:
         #   - any files still in PENDING_SCAN become MISSING
-        db.end_directory_scan(directory_id, completed=True)
+        db.end_directory_scan(directory_id, completed=True, scan_completed_ns=reader.now())
 
     return db
 

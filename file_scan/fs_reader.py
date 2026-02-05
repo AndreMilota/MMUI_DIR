@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from typing import Iterator, Tuple, Dict, Any, Optional, List
 import string
 import os
+import time
 from pathlib import Path
 
 # Master media set (lowercase, no dots). Extend as you like.
@@ -77,6 +78,11 @@ class FSReader(ABC):
         Returns:
             String fingerprint in format "count:max_mtime_ns"
         """
+        pass
+
+    @abstractmethod
+    def now(self) -> int:
+        """Return current time in nanoseconds since epoch."""
         pass
 
 
@@ -177,6 +183,10 @@ class RealFSReader(FSReader):
         except Exception:
             pass
         return f"{count}:{max_mtime}"
+
+    def now(self) -> int:
+        """Return current wall-clock time in nanoseconds since epoch."""
+        return time.time_ns()
 
     # -------------------------------------------------------------------------
     # Internal helper methods
