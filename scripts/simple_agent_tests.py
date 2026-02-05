@@ -7,7 +7,9 @@ from file_scan.fs_database import FSDatabase
 from file_scan.fs_load import scan_path_into_db
 from file_scan.mock_file_system.mock_files import MockFiles
 from file_scan.mock_file_system.mock_fs_reader import MockFSReader
-
+from app.runner import run_query
+from pathlib import Path
+from file_scan.tests.export_db import export_all_tables
 
 def ns_to_str(ns_value):
     """Convert nanoseconds since epoch to a human-readable string."""
@@ -47,7 +49,6 @@ def ls(virtual_fs: MockFiles):
         name = f"{f['name']}.{f['extension']}" if f['extension'] else f['name']
         print(f"{name:<40}\t{f['size_bytes']:<15}\t{ns_to_str(f['ctime_ns']):<20}\t{ns_to_str(f['mtime_ns']):<20}")
 
-
 def test_1():
     # Set up the virtual file system
     fs = make_new_file_system("simple_agent_fs")
@@ -71,10 +72,6 @@ def test_1():
     reader = MockFSReader(fs)
     scan_path_into_db(root_path="C:/", db=db, reader=reader)
 
-    # export the database to verify contents using the existing export function
-    from pathlib import Path
-    from file_scan.tests.export_db import export_all_tables
-
     # export_all_tables(
     #     db_path=Path(db.db_path),
     #     out_dir=Path(os.path.dirname(db.db_path) or "."),
@@ -84,7 +81,6 @@ def test_1():
     # ------------------------------------------------------------------
     # Run the LangGraph query pipeline against the scan database
     # ------------------------------------------------------------------
-    from app.runner import run_query
 
     # The mock file was created at 2026-01-01 12:00:00.
     # Set "now" two weeks later so the file counts as "more than a week old".
@@ -105,6 +101,11 @@ def test_1():
         print(f"RESPONSE:\n{result.get('response')}\n")
 
     print(f"{'='*60}\n")
+
+    rows = result.get('results', [])
+    count = list(rows[0].values())[0]
+    assert count == 1, f"Expected 1 mp3 file, got {count}"
+    print(f"ASSERTION PASSED: count = {count}")
 
 
 if __name__ == "__main__":
