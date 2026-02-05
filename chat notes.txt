@@ -1,0 +1,23 @@
+So let’s run a bunch of tests now. All of the tests will just look at counting things or seeing something exists we’ll need to create a virtual file system and scan it in. Just to make things interesting so we can deal with deleted files we’ll also delete some files and then do a rescan. The goal of these tests is to see how good a job the large language model can do That writing complex SQL queries within this limited range of problems.
+Ideally you could just build out one Virtual file system but if that seems too complicated you could write another test function and build out another virtual file system.
+I’m going to write the queries for now but for the next test you can take a turn at writing some.
+I’m also going to delegate to you the provisioning of the mock File system, so that we can errors in the way it responds.
+Often times I will say “this folder”. Eventually we’ll build out a system where we will process gestures but for now you’ll just have to rewrite the question for now to actually give a full path to the folder.
+How many text files are there which are three weeks old (you will need to advance the timestamp so that we can have some old files and some new files. It would probably be good if there are more than one file at least three.)
+How many text files are there in this directory (You’ll have to put in the correct directory and they’ll have to be multiple directories to make this test meaningful)
+Are there any zero length text files in this folder
+Are there any files with the exact creation timestamp in the children of this folder (Again you’ll have to provide the folder hierarchy. The result for this is only going to yes or no though maybe the large language model will decide to say how many there were. So maybe you should make sure there at least two)
+Are there any MP3 files that are shorter than a minute in this folder Recursively.
+Are there any duplicate files in the in these three folders? (Again we’ll have to give a list You could write it out right after this, The notion of duplicates is rather complex and may need disambiguation We will have to see what the large language model does with that if it is clever enough to figure it out or if it makes some assumption or maybe we’ll have to modify the prompt to clarify. Later we’ll have a more intelligent system asks the user for clarification when there is an issue and then we can experiment with how it keeps track of clarification but for now let’s just see what it does)
+How many MP3 files Are there that were created last week.(Again this is potentially ambiguous Was it last week starting on a Sunday or was it All the files That are between 14 days and 7 days old. Set up a that will give a different number depending on what it assumes and then in the comments and I guess you could even print it out as well Try to determine which choice it made.
+How many MP3 files were created last month that Are exactly the same length as one another (Again this may have some issues with ambiguity)
+Did I add MP threes or waves of songs by the Beetles Yesterday or the day before?
+Did I add any media files by the Beetles last month?
+How many minutes of audio are in audio files in this folder?
+How many mono files do I have?
+How many files did I record yesterday that under are 30 seconds and are in stereo?
+There is a function which allows you create media files without having to specify all of the parameters if it can interpolate some of the parameters from the ones who give it I forgot what it’s called you can use that if you want I think it’s right next to function that is used to create new files.
+Note I dictated this and found that there some speech recognition errors I have gone through and corrected most of them if you find any additional ones please repair them For now we will only run tests well formed utterances later we will do a test that simulates speech recognition errors and disfluencies. You should probably add a comment after all of this reminding me to do that.
+As I said ideally we can fit this into one test function call it test_2 If there are some issues with trying to for instance configure the Virtual file system appropriately then you can go ahead and create some test functions with the same naming convention and the special tests they are going to run.
+Let me know if you have any questions before you begin.
+

@@ -34,8 +34,13 @@ DB_PATH = locate_db()
 def text_to_sql(state: State) -> State:
     """Node 1: Convert natural language query to SQL using LLM."""
     user_text = state.get("user_text", "")
+    now_ns = state.get("now_ns")
+    now_iso = state.get("now_iso")
 
     system_prompt = f"""You are a SQL query generator for a file management database.
+
+Current time (ISO): {now_iso}
+Current time (nanoseconds since epoch): {now_ns}
 
 {LLM_DB_SCHEMA_DOC}
 
@@ -48,7 +53,9 @@ Important:
 - Use proper JOINs between files, directories, and volumes tables
 - Full file paths are: directories.dir_path || '/' || files.name || '.' || files.extension
 - Filter for presence_state = 0 (PRESENT files) unless user asks for historical data
-- For time-based queries, mtime_ns is in nanoseconds since Unix epoch
+- NEVER use strftime('%s','now') or date('now') — always use the literal now_ns value above for time arithmetic
+- ctime_ns is creation time; mtime_ns is last-modification time. When the user says "created", "added", or "old" use ctime_ns. When the user says "modified" or "changed" use mtime_ns
+- For relative time calculations, compare directly against nanosecond values. For example "older than 7 days" means ctime_ns < {now_ns} - 7*86400*1000000000
 - Be careful with NULL values in optional fields
 """
 

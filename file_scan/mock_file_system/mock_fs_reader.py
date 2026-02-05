@@ -84,6 +84,7 @@ class MockFSReader(FSReader):
             return
 
         dir_path_db = abs_path.replace("\\", "/")
+        like_prefix = dir_path_db.rstrip("/")
 
         cur = self._mf.db.conn.cursor()
         cur.execute(
@@ -93,7 +94,7 @@ class MockFSReader(FSReader):
               AND (dir_path = ? OR dir_path LIKE ?)
             ORDER BY dir_path
             """,
-            (volume_id, dir_path_db, dir_path_db + "/%"),
+            (volume_id, dir_path_db, like_prefix + "/%"),
         )
         for row in cur.fetchall():
             yield row["dir_path"]
