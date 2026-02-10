@@ -1,28 +1,31 @@
 # app/tools/sql.py
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 from typing import Iterable, Any, List, Dict
 
-# Always anchor paths at the project root, not the working directory.
-# This file lives at app/tools/sql.py, so parents[2] is the project root.
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DB_PATH = PROJECT_ROOT / "db" / "files.db"
 
-def connect() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+def get_db_connection():
+    # Path to the database file relative to project root
+    db_path = Path(__file__).resolve().parents[2] / 'db' / 'files.db'
+    # Ensure the db directory exists
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    return sqlite3.connect(str(db_path))
 
 def query(sql: str, params: Iterable[Any] | Dict[str, Any] = ()) -> List[Dict[str, Any]]:
     """Run a read-only SELECT and return a list of dictionaries."""
-    with connect() as conn:
-        cur = conn.execute(sql, params)
-        return [dict(r) for r in cur.fetchall()]
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    if params:
+        cursor.execute(sql, params)
+    else:
+        cursor.execute(sql)
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
 
 def execute(sql: str, params: Iterable[Any] | Dict[str, Any] = ()) -> int:
     """Run an INSERT/UPDATE/DELETE and return the number of affected rows."""
-    with connect() as conn:
+    with get_db_connection() as conn:
         cur = conn.execute(sql, params)
         conn.commit()
         return cur.rowcount

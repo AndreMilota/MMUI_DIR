@@ -4,76 +4,174 @@ Agent-based file‑management experiments using **LangGraph** (workflow orchestr
 
 ---
 
-## Requirements
-- Python **3.12**
-- `pip` 23+
-- A Groq API key in the environment variable **`GROQ_API_KEY`**
+## Table of Contents
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Database Setup](#database-setup)
+- [Verification](#verification)
+- [Project Structure](#project-structure)
+- [Utilities](#utilities)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
 
 ---
 
-## Quick start (Windows PowerShell)
+## Prerequisites
 
-1) **Create and activate a virtual environment**
+### System Requirements
+- Python **3.12**
+- `pip` 23+
+
+### API Access
+- A Groq API key (stored in environment variable **`GROQ_API_KEY`**)
+- Get your free API key at [groq.com](https://groq.com)
+  - Login or create an account and follow the instructions
+
+---
+
+## Installation
+There are three ways to handle the installation: automated, manual, or quick start. They should all accomplish the same thing, and all need to be updated if the project changes.
+
+### Automated Setup (Recommended)
+Run the automated setup script for a quick start:
+
+```powershell
+python -m app.scripts.setup
+```
+
+This handles venv creation, activation, upgrades, and dependency installation. After running, proceed to [Configuration](#configuration).
+
+### Quick Setup Script (Inline)
+For convenience, you can copy and run this entire PowerShell script manually (replace `your_actual_key_here` with your actual Groq API key):
+
+```powershell
+# Create and activate virtual environment
+python -m venv .venv
+. .\.venv\Scripts\Activate.ps1
+
+# Upgrade installer tools
+python -m pip install --upgrade pip wheel setuptools
+
+# Install project dependencies
+pip install -r requirements.txt
+
+# Set Groq key (uncomment and modify one of the options below)
+# Option A: Set system environment variable (run in elevated PowerShell if needed)
+# [Environment]::SetEnvironmentVariable("GROQ_API_KEY", "your_actual_key_here", "Machine")
+
+# Option B: Create .env file
+# New-Item -ItemType File -Path .env -Force
+# Set-Content -Path .env -Value "GROQ_API_KEY=your_actual_key_here"
+
+# Set up database
+python -m app.scripts.db_smoketest
+
+# Verify setup
+python -m app.scripts.test_groq
+python -m app.scripts.hello_langgraph
+python -m app.scripts.db_query
+```
+
+### Manual Setup
+If you prefer manual steps or need to customize:
+
+#### Step 1: Create Virtual Environment
+**Important:** Always activate the virtual environment before running any Python scripts or commands to ensure dependencies are available.
+
 ```powershell
 python -m venv .venv
 . .\.venv\Scripts\Activate.ps1
 ```
 
-2) **Upgrade installer tools**
+#### Step 2: Upgrade Installer Tools
 ```powershell
 python -m pip install --upgrade pip wheel setuptools
 ```
 
-3) **Install project dependencies**
+#### Step 3: Install Dependencies
 ```powershell
 pip install -r requirements.txt
 ```
 
-4) **Set your Groq key**
 
-**Option A — System environment (recommended):** set `GROQ_API_KEY` in Windows so all shells and PyCharm can see it.
-
-**Option B — `.env` file (project‑local):**
-- Create a file named `.env` in the project root.
-- Put your key on one line (no quotes):
-  ```
-  GROQ_API_KEY=your_actual_key_here
-  ```
-- If you run from PyCharm, point the Run Configuration to this `.env` file:  
-  **Run → Edit Configurations… → Environment variables file (.env)**
-
-> `.env` is already ignored by Git.
 
 ---
 
-## Verify the setup
+## Configuration
 
-**1) Groq test (prints a short greeting)**
-```powershell
-python scripts/test_groq.py
-```
+### Setting Your Groq API Key
 
-**2) LangGraph “hello”**
-```powershell
-python scripts/hello_langgraph.py
-```
+#### Option A: System Environment Variable (Recommended)
+Set `GROQ_API_KEY` in Windows system environment variables so all shells and PyCharm can access it.
 
-**3) Database quick test** – create/seed the database (if missing), then read a few rows.
-```powershell
-python scripts/db_smoketest.py
-python scripts/db_query.py
-```
-Expected output: two rows that include `Sample1.mp3` and `Sample2.mp3`.
+#### Option B: Project-Local `.env` File
+1. Create a file named `.env` in the project root
+2. Add your key on one line (no quotes):
+   ```
+   GROQ_API_KEY=your_actual_key_here
+   ```
+3. For PyCharm users: Configure the Run Configuration to use this `.env` file
+   - Navigate to **Run → Edit Configurations… → Environment variables file (.env)**
+
+> Note: `.env` is already ignored by Git for security.
 
 ---
 
-## Project layout (key parts)
+## Database Setup
+
+### Initialize Database
+Create and seed the database with sample data:
+
+```powershell
+python -m app.scripts.db_smoketest
+```
+
+This creates `db/files.db` with sample records if it doesn't already exist.
+
+---
+
+## Verification
+
+### Test Individual Components
+
+#### 1. Groq Connectivity Test
+Prints a short greeting to verify API connection:
+```powershell
+python -m app.scripts.test_groq
+```
+
+#### 2. LangGraph Test
+Runs a basic "hello" workflow:
+```powershell
+python -m app.scripts.hello_langgraph
+```
+
+#### 3. Database Query Test
+Reads sample rows from the database:
+```powershell
+python -m app.scripts.db_query
+```
+
+**Expected output:** Two rows containing `Sample1.mp3` and `Sample2.mp3`.
+
+---
+
+## Project Structure
+
 ```text
 MMUI_DIR/
   app/
     __init__.py
     state.py
     runner.py
+    scripts/
+      db_smoketest.py       # create/seed table
+      db_query.py           # read a few rows
+      hello_langgraph.py    # LangGraph hello
+      test_groq.py          # Groq connectivity test
+      print_tree.py         # prints & copies folder tree
+      visualize_graph.py    # ASCII + Mermaid graph
     orchestrator/
       __init__.py
       graph.py
@@ -90,13 +188,6 @@ MMUI_DIR/
   db/
     files.db              # created by db_smoketest.py
     memory/               # per-session JSON memory files
-  scripts/
-    hello_langgraph.py    # LangGraph hello
-    test_groq.py          # Groq connectivity test
-    db_smoketest.py       # create/seed table
-    db_query.py           # read a few rows
-    print_tree.py         # prints & copies folder tree
-    visualize_graph.py    # ASCII + Mermaid graph
   docs/
     graph.md              # Mermaid diagram (generated)
   .gitignore
@@ -106,92 +197,97 @@ MMUI_DIR/
 
 ---
 
-## Folder tree utility (prints and copies the project layout)
+## Utilities
 
-We include a helper at `scripts/print_tree.py` that prints a readable folder tree to the screen and, when possible, also copies the same text to your clipboard.
+### Folder Tree Printer
 
-### How to run (from the project root)
-**Windows PowerShell**
+The `print_tree.py` utility prints a readable folder tree and copies it to your clipboard.
+
+#### Basic Usage
 ```powershell
-python scripts/print_tree.py
+python -m app.scripts.print_tree
 ```
 
-**macOS or Linux**
-```bash
-python3 scripts/print_tree.py
-```
-
-You will see the tree on screen. The script also attempts to copy the same text to your clipboard and prints a short note telling you if that worked.
-
-### Clipboard notes
-- **Windows:** uses the built‑in `clip` command (no setup needed).
-- **macOS:** uses the built‑in `pbcopy` command (no setup needed).
-- **Linux:** tries `xclip` or `xsel`. If neither is installed, you can install one of them, for example:
-  - Debian/Ubuntu: `sudo apt install xclip` (or `sudo apt install xsel`)
+#### Platform-Specific Clipboard Support
+- **Windows:** Uses built‑in `clip` command (no setup needed)
+- **macOS:** Uses built‑in `pbcopy` command (no setup needed)
+- **Linux:** Requires `xclip` or `xsel`
+  - Debian/Ubuntu: `sudo apt install xclip`
   - Fedora: `sudo dnf install xclip`
   - Arch: `sudo pacman -S xclip`
+  - **Alternative:** Install pure‑Python fallback: `pip install pyperclip`
 
-  Alternatively, install the pure‑Python fallback:
-  ```bash
-  pip install pyperclip
-  ```
-  The script will use `pyperclip` automatically if it is available.
+#### Advanced Options
 
-### Options
-- Print the whole project (the `.` path) and limit depth to 6 levels:
-  ```bash
-  python scripts/print_tree.py . --max-depth 6
-  ```
-- Do not copy to the clipboard (print only):
-  ```bash
-  python scripts/print_tree.py --no-copy
-  ```
-- Exclude extra patterns (added to the default ignore list):
-  ```bash
-  python scripts/print_tree.py . --exclude build dist *.log
-  ```
+**Limit tree depth:**
+```bash
+python -m app.scripts.print_tree . --max-depth 6
+```
 
-### Running from PyCharm
-- Right‑click `scripts/print_tree.py` → **Run 'print_tree'**.
-- To set options, create a Run Configuration and add arguments (for example: `. --max-depth 6`).
+**Print only (skip clipboard):**
+```bash
+python -m app.scripts.print_tree --no-copy
+```
+
+**Exclude additional patterns:**
+```bash
+python -m app.scripts.print_tree . --exclude build dist *.log
+```
+
+#### Running from PyCharm
+- Right‑click `app/scripts/print_tree.py` → **Run 'print_tree'**
+- To set options, create a Run Configuration and add arguments (e.g., `. --max-depth 6`)
 
 ---
 
-## Graph visualization
+### Graph Visualization
 
-To print an ASCII map of the current LangGraph **and** write a Mermaid diagram to `docs/graph.md`:
+Generate both ASCII and Mermaid diagrams of the LangGraph workflow.
 
+#### Setup and Run
 ```bash
 python -m pip install -r requirements.txt   # includes grandalf
-python scripts/visualize_graph.py
+python -m app.scripts.visualize_graph
 ```
 
-- The script prints an ASCII graph to the console (requires `grandalf`).
-- It also writes a Mermaid diagram to `docs/graph.md` (GitHub renders it automatically).
+#### Output
+- **Console:** ASCII graph visualization (requires `grandalf`)
+- **File:** Mermaid diagram written to `docs/graph.md` (auto-renders on GitHub)
 
 ---
 
 ## Troubleshooting
 
-**“GROQ_API_KEY is not set.”**  
-Set the variable in Windows or use a project `.env` and link it in the Run Configuration. Restart PyCharm after changing system variables.
+### Common Issues
 
-**“no such table: files.”**  
-Run `python scripts/db_smoketest.py` once to create and seed the table, then run `python scripts/db_query.py` again.
+#### "GROQ_API_KEY is not set"
+**Solution:** Set the environment variable in Windows or create a `.env` file and link it in your Run Configuration. Restart PyCharm after changing system environment variables.
 
-**Imports fail when running a script under `scripts/`**  
-Either run as a module:
+#### "no such table: files"
+**Solution:** Run the database setup script:
 ```bash
-python -m scripts.run_llm_routing_demo
+python -m app.scripts.db_smoketest
 ```
-or add this to the top of the script (before other imports):
+Then retry your query:
+```bash
+python -m app.scripts.db_query
+```
+
+#### Import errors when running scripts
+**Solution:** Run scripts as modules:
+```bash
+python -m app.scripts.run_llm_routing_demo
+```
+
+**Alternative:** Add this to the top of the script (before other imports):
 ```python
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 ```
 
 ---
 
 ## License
+
 MIT (see `LICENSE`).
