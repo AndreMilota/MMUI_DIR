@@ -18,13 +18,13 @@ def ns_to_str(ns_value):
     seconds = ns_value / 1_000_000_000
     return datetime.fromtimestamp(seconds).strftime("%Y-%m-%d %H:%M:%S")
 
-def make_new_file_system(name: str = "test_fs") -> MockFiles:
+def make_new_file_system(name: str = "test_fs", now: str = "2026-01-01 12:00:00") -> MockFiles:
     #clear the database file if it exists
     db_filename = f"{name}.sqlite"
     if os.path.exists(db_filename):
         os.unlink(db_filename)
     vfs = MockFiles(db_path=db_filename)
-    vfs.set_time("2026-01-01 12:00:00")
+    vfs.set_time(now)   # TODO set this with an Argument Tonless the argument is omitted and then use this as default
     vfs.mount_volume(drive_letter='C')
     return vfs
 
@@ -134,8 +134,9 @@ def test_q1_three_weeks_old():
     cover_letter (Feb 10), blank (Feb 11) → not three weeks old.
     """
     NOW = "2026-02-15 12:00:00"
+    file_system_creation_time = "2026-01-1 1:00:00"
 
-    fs = make_new_file_system("test_q1_fs")
+    fs = make_new_file_system("test_q1_fs", now = file_system_creation_time)
     fs.mkdir("C:/Documents/Reports")
     fs.mkdir("C:/Documents/Letters")
 
@@ -166,6 +167,8 @@ def test_q1_three_weeks_old():
     db = get_fresh_database("test_q1_db")
     reader = MockFSReader(fs)
     scan_path_into_db(root_path="C:/", db=db, reader=reader)
+
+    # Debug: list all files in the database
 
     # Query
     result = run_test_query(
@@ -523,7 +526,6 @@ def test_2():
     print("\n" + "="*60)
     print("test_2: ALL QUERIES COMPLETE")
     print("="*60)
-
 
 if __name__ == "__main__":
     test_q1_three_weeks_old()

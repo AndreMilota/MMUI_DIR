@@ -76,10 +76,13 @@ Expected output: two rows that include `Sample1.mp3` and `Sample2.mp3`.
 ## Project layout (key parts)
 ```text
 MMUI_DIR/
-  app/
+  app/                    # Original linear LangGraph workflow
     __init__.py
     state.py
     runner.py
+    graph.py              # Linear: text_to_sql → execute_sql → sql_to_text
+    llm/
+      core.py             # Groq LLM wrapper (chat, chat_json)
     orchestrator/
       __init__.py
       graph.py
@@ -93,6 +96,12 @@ MMUI_DIR/
     tools/
       __init__.py
       sql.py              # tiny helper for SQLite (db/files.db)
+  app_2/                  # NEW: Branching LangGraph workflow
+    __init__.py
+    state.py              # GraphState, ExecutionPlan, ActionType enum
+    graph.py              # Branching graph with conditional routing
+    nodes.py              # Classification + 9 processing nodes
+    runner.py             # Entry point: run_query()
   file_scan/
     fs_reader.py          # FSReader ABC + RealFSReader (OS-level file iteration)
     fs_database.py        # SQLite-backed file tracking database
@@ -113,9 +122,10 @@ MMUI_DIR/
     db_smoketest.py       # create/seed table
     db_query.py           # read a few rows
     print_tree.py         # prints & copies folder tree
-    simple_agent_tests.py # MockFiles smoke test with directory listing
-    clean_temp_files.py   # delete .tsv and .sqlite temp files
-    visualize_graph.py    # ASCII + Mermaid graph
+    simple_agent_tests.py     # MockFiles smoke test with directory listing
+    branching_agent_tests.py  # Tests for app_2 branching workflow
+    clean_temp_files.py       # delete .tsv and .sqlite temp files
+    visualize_graph.py        # ASCII + Mermaid graph
   docs/
     graph.md              # Mermaid diagram (generated)
   .gitignore
@@ -335,6 +345,125 @@ presence-state tracking and scan timestamp ordering:
 ```powershell
 python -m file_scan.mock_file_system.test_fs_reader_using_mocks
 ```
+
+---
+
+## Branching LangGraph Workflow (app_2)
+
+The `app_2` module implements a branching LangGraph workflow that classifies user intent and routes to specialized processing nodes. This is the foundation for the multimodal file manager agent.
+
+### Architecture
+
+```
+                    ┌─────────────────┐
+                    │    classify     │
+                    │  (LLM call to   │
+                    │ determine intent│
+                    │ + generate SQL) │
+                    └────────┬────────┘
+                             │
+              ┌──────────────┼──────────────┐
+              │              │              │
+              ▼              ▼              ▼
+        ┌─────────┐   ┌───────────┐   ┌──────────┐
+        │ execute │   │  web_     │   │ direct_  │
+        │   sql   │   │  search   │   │ answer   │
+        │ (7 var) │   │  (stub)   │   │          │
+        └────┬────┘   └─────┬─────┘   └────┬─────┘
+             │              │              │
+     ┌───────┴───────┐      │              │
+     ▼               ▼      │              │
+┌─────────┐   ┌──────────┐  │              │
+│ respond │   │transform │  │              │
+│ display │   │  copy    │  │              │
+│ store   │   │ feed_llm │  │              │
+│         │   │ external │  │              │
+└────┬────┘   └────┬─────┘  │              │
+     │             │        │              │
+     └─────────────┴────────┴──────────────┘
+                             │
+                             ▼
+                          [END]
+```
+
+### Action Types (Branches)
+
+| Action Type | Purpose | SQL Required | Status |
+|-------------|---------|--------------|--------|
+| `query_respond` | Single value → natural language | Yes | Implemented |
+| `query_display` | Show table to user | Yes | Implemented |
+| `query_store` | Store table for multi-turn dialog | Yes | Implemented |
+| `query_transform` | Move/rename/delete files | Yes (source/dest) | Stub |
+| `query_copy` | Copy files | Yes (source/dest) | Stub |
+| `query_feed_llm` | AI processing of file data | Yes | Stub |
+| `query_external` | Run external app per file | Yes | Stub |
+| `web_search` | Web research (not file-related) | No | Stub |
+| `direct_answer` | Conversational responses | No | Implemented |
+
+### Usage
+
+```python
+from app_2 import run_query
+
+# Single value query
+result = run_query(
+    "How many MP3 files do I have?",
+    now="2026-02-15 12:00:00",
+    db_path="test.sqlite"
+)
+print(result['final_response'])  # "You have 5 MP3 files."
+print(result['action_type'])      # "query_respond"
+
+# File operations (stub)
+result = run_query(
+    "Delete all .tmp files in C:/Downloads/Temp",
+    now="2026-02-15 12:00:00",
+    db_path="test.sqlite"
+)
+# Prints planned operations table with source_path and dest_path columns
+
+# Conversational
+result = run_query("Hello, how are you?", db_path="test.sqlite")
+print(result['final_response'])  # Friendly greeting response
+```
+
+### Running the tests
+
+```powershell
+# Run all branching agent tests
+PYTHONPATH=. python scripts/branching_agent_tests.py
+
+# Or run individual test functions
+python -c "import sys; sys.path.insert(0,'.'); from scripts.branching_agent_tests import test_query_respond; test_query_respond()"
+```
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `app_2/state.py` | `ActionType` enum, `ExecutionPlan` Pydantic model, `GraphState` TypedDict |
+| `app_2/nodes.py` | Classification node + all processing nodes |
+| `app_2/graph.py` | Graph construction with conditional routing |
+| `app_2/runner.py` | `run_query()` entry point |
+
+### ExecutionPlan Model
+
+The classification LLM returns a structured `ExecutionPlan`:
+
+```python
+class ExecutionPlan(BaseModel):
+    action_type: ActionType      # Which branch to take
+    sql: Optional[str]           # SQL query (if needed)
+    processing_instruction: str  # What to do with results
+    response_text: Optional[str] # For direct_answer
+    llm_instruction: Optional[str]  # For query_feed_llm
+    external_app: Optional[str]  # For query_external
+    reasoning: str               # Why this classification
+```
+
+For file operations (`query_transform`, `query_copy`), the SQL must return:
+- `source_path`: Full path of the file
+- `dest_path`: Destination path (or NULL for delete)
 
 ---
 
