@@ -26,6 +26,151 @@ from file_scan.fs_database import LLM_DB_SCHEMA_DOC
 
 
 # -----------------------------------------------------------------------------
+# SQL Escalation Guidance - Modular Prompt Component
+# -----------------------------------------------------------------------------
+#
+# MODULARIZATION MECHANISM EXPLANATION:
+#
+# This variable contains specialized guidance for the classifier LLM to help it
+# decide when a file transformation request can be handled entirely within SQL
+# versus when it needs to escalate to the query_feed_llm path.
+#
+# WHY MODULARIZE THIS?
+# ---------------------
+# 1. CONDITIONAL INCLUSION: In a production system, you may want to include this
+#    guidance only when the user's request appears to involve file transformation.
+#    A lightweight pre-classifier or keyword detector could determine whether to
+#    inject this context, saving tokens on simple queries.
+#
+# 2. A/B TESTING: By isolating this guidance, you can easily test different
+#    versions of the escalation rules to optimize classification accuracy.
+#
+# 3. MODEL-SPECIFIC TUNING: Different LLMs may need different levels of detail
+#    in the guidance. Smaller models might need more explicit examples, while
+#    larger models might work with more concise rules.
+#
+# 4. DYNAMIC UPDATES: The guidance can be loaded from a config file or database,
+#    allowing updates without code changes.
+#
+# FUTURE OPTIMIZATION POSSIBILITIES:
+# ----------------------------------
+# - Use a lightweight classifier (e.g., regex patterns, keyword matching, or a
+#   small fine-tuned model) to detect transformation-related queries before
+#   injecting this guidance.
+#
+# - Implement a two-stage classification: First classify intent broadly, then
+#   only inject SQL capability guidance for transform/copy/rename intents.
+#
+# - Cache the compiled prompt with guidance for requests that pattern-match
+#   known transformation scenarios.
+#
+# - Use embedding similarity to compare the user's request against known
+#   SQL-capable vs SQL-incapable transformation patterns.
+#
+# HOW TO USE CONDITIONALLY:
+# -------------------------
+# Currently, this guidance is always included in the system prompt. To make it
+# conditional, you would:
+#
+#   1. Create a pre-classification function:
+#      def needs_sql_escalation_guidance(user_input: str) -> bool:
+#          transform_keywords = ['rename', 'move', 'delete', 'copy', 'change name']
+#          return any(kw in user_input.lower() for kw in transform_keywords)
+#
+#   2. Conditionally include in the prompt:
+#      escalation_section = SQL_ESCALATION_GUIDANCE if needs_sql_escalation_guidance(user_input) else ""
+#      system_prompt = f"...{escalation_section}..."
+#
+# -----------------------------------------------------------------------------
+
+SQL_ESCALATION_GUIDANCE = """
+## SQL String Manipulation Capabilities and Limitations
+
+When generating SQL for file transformation operations (query_transform, query_copy),
+you must understand what SQLite CAN and CANNOT do with string manipulation.
+
+### SQLite CAN handle (use query_transform or query_copy):
+
+1. **Moving files to a new directory**: Simply change the directory portion
+   Example: Move all .pdf from /Downloads to /Archive
+   SQL: SELECT source_path, '/Archive/' || name || '.' || extension AS dest_path ...
+
+2. **Deleting files**: dest_path is NULL
+   Example: Delete all .tmp files
+   SQL: SELECT source_path, NULL AS dest_path ...
+
+3. **Removing a FIXED, KNOWN prefix or suffix**: Use REPLACE()
+   Example: Remove 'archive_' prefix from all filenames
+   SQL: SELECT source_path, dir_path || '/' || REPLACE(name, 'archive_', '') || '.' || extension AS dest_path ...
+
+4. **Removing first N characters** (fixed count): Use SUBSTR()
+   Example: Remove first 4 characters from all filenames
+   SQL: SUBSTR(name, 5) -- starts at position 5, skipping first 4
+
+5. **Extracting after a fixed delimiter**: Use SUBSTR() with INSTR()
+   Example: Get everything after the first underscore
+   SQL: SUBSTR(name, INSTR(name, '_') + 1)
+
+### SQLite CANNOT handle (MUST use query_feed_llm):
+
+1. **Variable-length pattern removal**: Removing "leading digits" of any length
+   Example: "01_song.mp3", "123_track.mp3" -> "song.mp3", "track.mp3"
+   WHY: No regex support. Can't match "any number of digits followed by underscore"
+
+2. **CamelCase to snake_case conversion**:
+   Example: "UserAccountManager.py" -> "user_account_manager.py"
+   WHY: Requires identifying uppercase letters mid-string and inserting underscores
+
+3. **Removing variable-content parenthetical suffixes**:
+   Example: "file (1).txt", "file (copy).txt" -> "file.txt"
+   WHY: Content inside parentheses varies; can't use fixed REPLACE()
+
+4. **Pattern-based extraction and restructuring**:
+   Example: "IMG_0001.jpg" -> "vacation_0001.jpg" (keeping the number)
+   WHY: Requires regex capture groups to extract the number portion
+
+5. **Semantic/AI-based renaming**:
+   Example: Rename photos based on their metadata or content
+   WHY: Requires understanding context, not just string manipulation
+
+6. **Complex conditional renaming**:
+   Example: "If starts with X, do A; if starts with Y, do B; otherwise do C"
+   WHY: While CASE statements exist, complex multi-condition string transforms
+   become unwieldy and error-prone in SQL
+
+### Decision Rule:
+
+- If the transformation can be expressed with REPLACE(), SUBSTR(), ||, or simple
+  CASE statements with fixed string comparisons: Use query_transform or query_copy
+
+- If the transformation requires pattern matching, variable-length matching,
+  regex-like operations, or semantic understanding: Use query_feed_llm and write
+  SQL that returns source_path plus any columns needed for the LLM to decide new names.
+
+### SQL Template for query_feed_llm:
+
+IMPORTANT: Always JOIN the files and directories tables properly. Never reference
+dir_path directly on the files table - it lives in directories.
+
+```sql
+SELECT
+    directories.dir_path || '/' || files.name ||
+        CASE WHEN files.extension IS NOT NULL AND files.extension != ''
+             THEN '.' || files.extension ELSE '' END AS source_path,
+    directories.dir_path,
+    files.name,
+    files.extension
+FROM files
+JOIN directories ON files.directory_id = directories.id
+WHERE directories.dir_path = 'C:/Some/Path'
+  AND files.presence_state = 0
+```
+
+The LLM processing node will then use these columns to generate dest_path values.
+"""
+
+
+# -----------------------------------------------------------------------------
 # Classification Node
 # -----------------------------------------------------------------------------
 
@@ -67,6 +212,12 @@ Your task is to:
 For file operations (query_transform, query_copy):
 - SQL must return columns: source_path (full path of file) and dest_path (destination or NULL for delete)
 - Full path = directories.dir_path || '/' || files.name || '.' || files.extension
+
+For query_feed_llm (when SQL cannot generate dest_path):
+- SQL should return source_path and any other columns the LLM needs to make renaming decisions
+- The LLM will then generate the dest_path values based on the retrieved data
+
+{SQL_ESCALATION_GUIDANCE}
 
 For query_respond: SQL should return a single value (COUNT, SUM, etc.)
 
