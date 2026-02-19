@@ -65,6 +65,9 @@ def run_query(
     # Extract execution plan details
     plan = state_out.get("execution_plan")
 
+    # print the result
+    print(f"Execution results: {state_out.get('final_response')}")
+
     return {
         "action_type": plan.action_type.value if plan else None,
         "sql": state_out.get("sql"),
