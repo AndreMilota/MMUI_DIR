@@ -40,6 +40,7 @@ def run_query(user_text: str, now: Optional[str] = None) -> Dict[str, Any]:
             ns = time.time_ns()
             iso = datetime.fromtimestamp(ns / 1e9, tz=timezone.utc).isoformat().replace("+00:00", "Z")
 
+    # fill a Dict with user_text and now_ns and now_iso
     state_in = {
         "user_text": user_text,
         "now_ns": ns,

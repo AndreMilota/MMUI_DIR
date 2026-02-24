@@ -33,11 +33,8 @@ DB_PATH = locate_db()
 # removed `current_directory` - not needed
 
 def text_to_sql(state: State) -> State:
-    state_keys = state.keys()
-    print("state keys = ", state_keys)
-
     user_text = state.get("user_text", "")
-    now_ns, now_iso = get_now_ns_and_iso(state)
+    now_ns, now_iso = state["now_ns"], state["now_iso"]
 
     bounds = compute_time_boundaries(now_ns)
 
@@ -48,7 +45,7 @@ Current time (UTC): {now_iso}
 Current time (nanoseconds since epoch): {now_ns}
 
 Period boundaries (UTC / ns):
-- start_of_day: {bounds['start_of_day_iso']} (ns={bounds['start_of_day_ns']})
+timedelta- start_of_day: {bounds['start_of_day_iso']} (ns={bounds['start_of_day_ns']})
 - start_of_next_day: {bounds['start_of_next_day_iso']} (ns={bounds['start_of_next_day_ns']})
 - start_of_week: {bounds['start_of_week_iso']} (ns={bounds['start_of_week_ns']})
 - start_of_next_week: {bounds['start_of_next_week_iso']} (ns={bounds['start_of_next_week_ns']})
@@ -162,6 +159,7 @@ def sql_to_text(state: Dict) -> Dict:
     answer = chat(system_prompt, user_text, temperature=0.0)
     state["response"] = answer.strip()
     return state
+
 
 def build_app():
     """Build and compile the LangGraph workflow."""
