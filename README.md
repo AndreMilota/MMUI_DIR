@@ -83,6 +83,9 @@ MMUI_DIR/
     graph.py              # Linear: text_to_sql → execute_sql → sql_to_text
     llm/
       core.py             # Groq LLM wrapper (chat, chat_json)
+    utils/
+      __init__.py
+      clipboard.py        # print_copy() for accessibility (prints + copies to clipboard)
     orchestrator/
       __init__.py
       graph.py
@@ -102,6 +105,8 @@ MMUI_DIR/
     graph.py              # Branching graph with conditional routing
     nodes.py              # Classification + 9 processing nodes
     runner.py             # Entry point: run_query()
+    path_guard.py         # Permission-based path access control
+    visualize_graph.py    # Generate Mermaid diagram of the workflow
   file_scan/
     fs_reader.py          # FSReader ABC + RealFSReader (OS-level file iteration)
     fs_database.py        # SQLite-backed file tracking database
@@ -117,17 +122,19 @@ MMUI_DIR/
     files.db              # created by db_smoketest.py
     memory/               # per-session JSON memory files
   scripts/
-    hello_langgraph.py    # LangGraph hello
-    test_groq.py          # Groq connectivity test
-    db_smoketest.py       # create/seed table
-    db_query.py           # read a few rows
-    print_tree.py         # prints & copies folder tree
+    hello_langgraph.py        # LangGraph hello
+    test_groq.py              # Groq connectivity test
+    db_smoketest.py           # create/seed table
+    db_query.py               # read a few rows
+    print_tree.py             # prints & copies folder tree
     simple_agent_tests.py     # MockFiles smoke test with directory listing
     branching_agent_tests.py  # Tests for app_2 branching workflow
+    sql_escalation_test.py    # Tests for SQL vs LLM routing decisions
+    display_sorting_tests.py  # Tests for query_display sorting/grouping
     clean_temp_files.py       # delete .tsv and .sqlite temp files
-    visualize_graph.py        # ASCII + Mermaid graph
   docs/
     graph.md              # Mermaid diagram (generated)
+  CLAUDE.md               # Coding conventions for Claude Code sessions
   .gitignore
   requirements.txt
   README.md
@@ -393,12 +400,14 @@ The `app_2` module implements a branching LangGraph workflow that classifies use
 | `query_respond` | Single value → natural language | Yes | Implemented |
 | `query_display` | Show table to user | Yes | Implemented |
 | `query_store` | Store table for multi-turn dialog | Yes | Implemented |
-| `query_transform` | Move/rename/delete files | Yes (source/dest) | Stub |
-| `query_copy` | Copy files | Yes (source/dest) | Stub |
+| `query_transform` | Move/rename/delete files | Yes (source/dest) | VFS Implemented |
+| `query_copy` | Copy files | Yes (source/dest) | VFS Implemented |
 | `query_feed_llm` | AI processing of file data | Yes | Stub |
 | `query_external` | Run external app per file | Yes | Stub |
 | `web_search` | Web research (not file-related) | No | Stub |
 | `direct_answer` | Conversational responses | No | Implemented |
+
+> **Note:** `query_transform` and `query_copy` use the virtual filesystem (MockFiles) for testing. Real filesystem operations are disabled until PathGuard integration is complete.
 
 ### Usage
 
@@ -431,10 +440,13 @@ print(result['final_response'])  # Friendly greeting response
 
 ```powershell
 # Run all branching agent tests
-PYTHONPATH=. python scripts/branching_agent_tests.py
+python -m scripts.branching_agent_tests
 
-# Or run individual test functions
-python -c "import sys; sys.path.insert(0,'.'); from scripts.branching_agent_tests import test_query_respond; test_query_respond()"
+# SQL escalation tests (verifies SQL vs LLM routing decisions)
+python -m scripts.sql_escalation_test
+
+# Display sorting/grouping tests
+python -m scripts.display_sorting_tests
 ```
 
 ### Key Files
@@ -464,6 +476,15 @@ class ExecutionPlan(BaseModel):
 For file operations (`query_transform`, `query_copy`), the SQL must return:
 - `source_path`: Full path of the file
 - `dest_path`: Destination path (or NULL for delete)
+
+### GraphState Fields for File Operations
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `vfs` | MockFiles | Virtual filesystem instance for testing |
+| `use_real_fs` | bool | If True, use real FS (disabled until PathGuard ready) |
+| `operation_results` | List[Dict] | Per-file success/failure results |
+| `operation_errors` | List[str] | Error messages from failed operations |
 
 ---
 
@@ -564,17 +585,50 @@ python -m scripts.clean_temp_files --yes      # delete without confirmation
 
 ---
 
-## Graph visualization
+## Accessibility utilities
 
-To print an ASCII map of the current LangGraph **and** write a Mermaid diagram to `docs/graph.md`:
+The `print_copy()` function in `app/utils/clipboard.py` prints text to stdout AND copies it to the clipboard. This is useful for users with screen readers or speech synthesizers that monitor the clipboard.
 
-```bash
-python -m pip install -r requirements.txt   # includes grandalf
-python scripts/visualize_graph.py
+```python
+from app.utils.clipboard import print_copy
+
+print_copy("Query completed: 15 files found")  # prints AND copies
 ```
 
-- The script prints an ASCII graph to the console (requires `grandalf`).
-- It also writes a Mermaid diagram to `docs/graph.md` (GitHub renders it automatically).
+The `app_2` runner uses `print_copy()` for user requests and system responses.
+
+---
+
+## Coding conventions (CLAUDE.md)
+
+The `CLAUDE.md` file in the project root documents coding patterns for AI-assisted development sessions:
+
+- **Marker comments**: Important operations are marked with `# <------- CATEGORY: description`
+  ```python
+  response = chat(system_prompt, user_prompt)  # <------- LLM CALL: classify intent
+  cursor.execute(sql)  # <------- DATABASE QUERY
+  vfs.move(source, dest)  # <------- FILE OPERATION: move
+  ```
+
+- **Modular prompt components**: LLM prompt guidance is stored in module-level variables (e.g., `SQL_ESCALATION_GUIDANCE`) for A/B testing and conditional inclusion.
+
+- **Virtual filesystem testing**: File operations use MockFiles for testing with explicit checks to prevent accidental real filesystem access.
+
+---
+
+## Graph visualization
+
+To generate a visual diagram of the app_2 branching workflow:
+
+```bash
+python -m app_2.visualize_graph
+```
+
+This creates:
+- `app_2/graph_diagram.mmd` — Mermaid diagram (paste at https://mermaid.live to view)
+- `app_2/graph_diagram.png` — PNG image (if graphviz/pygraphviz is installed)
+
+The Mermaid output is also printed to the console.
 
 ---
 
