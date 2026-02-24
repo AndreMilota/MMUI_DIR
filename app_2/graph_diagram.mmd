@@ -1,0 +1,54 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	classify(classify)
+	execute_sql_respond(execute_sql_respond)
+	execute_sql_display(execute_sql_display)
+	execute_sql_store(execute_sql_store)
+	execute_sql_transform(execute_sql_transform)
+	execute_sql_copy(execute_sql_copy)
+	execute_sql_feed_llm(execute_sql_feed_llm)
+	execute_sql_external(execute_sql_external)
+	query_respond(query_respond)
+	query_display(query_display)
+	query_store(query_store)
+	query_transform(query_transform)
+	query_copy(query_copy)
+	query_feed_llm(query_feed_llm)
+	query_external(query_external)
+	web_search(web_search)
+	direct_answer(direct_answer)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> classify;
+	classify -.-> direct_answer;
+	classify -.-> execute_sql_copy;
+	classify -.-> execute_sql_display;
+	classify -.-> execute_sql_external;
+	classify -.-> execute_sql_feed_llm;
+	classify -.-> execute_sql_respond;
+	classify -.-> execute_sql_store;
+	classify -.-> execute_sql_transform;
+	classify -.-> web_search;
+	execute_sql_copy --> query_copy;
+	execute_sql_display --> query_display;
+	execute_sql_external --> query_external;
+	execute_sql_feed_llm --> query_feed_llm;
+	execute_sql_respond --> query_respond;
+	execute_sql_store --> query_store;
+	execute_sql_transform --> query_transform;
+	direct_answer --> __end__;
+	query_copy --> __end__;
+	query_display --> __end__;
+	query_external --> __end__;
+	query_feed_llm --> __end__;
+	query_respond --> __end__;
+	query_store --> __end__;
+	query_transform --> __end__;
+	web_search --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

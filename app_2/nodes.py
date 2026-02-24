@@ -22,6 +22,7 @@ from typing import Dict, Any
 
 from app_2.state import GraphState, ExecutionPlan, ActionType
 from app.llm.core import chat, chat_json, extract_json_block
+from app.utils.clipboard import print_copy
 from file_scan.fs_database import LLM_DB_SCHEMA_DOC
 
 
@@ -242,7 +243,7 @@ Respond with a JSON object matching this schema:
 
     user_prompt = f"Classify this request and generate an execution plan: {user_input}"
 
-    response = chat_json(system_prompt, user_prompt, temperature=0.0)
+    response = chat_json(system_prompt, user_prompt, temperature=0.0)  # <------- LLM CALL: classify intent
 
     # Parse the JSON response
     json_str = extract_json_block(response)
@@ -283,7 +284,7 @@ def execute_sql(state: GraphState) -> GraphState:
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute(sql)
+        cursor.execute(sql)  # <------- DATABASE QUERY
         rows = cursor.fetchall()
         conn.close()
 
@@ -312,7 +313,7 @@ def query_and_respond(state: GraphState) -> GraphState:
     if error:
         system_prompt = "You are a helpful assistant. Explain this database error in simple terms."
         user_prompt = f"The user asked: '{user_input}'\n\nError: {error}\n\nExplain what went wrong."
-        response = chat(system_prompt, user_prompt, temperature=0.3)
+        response = chat(system_prompt, user_prompt, temperature=0.3)  # <------- LLM CALL: explain error
         state["final_response"] = response
         return state
 
@@ -336,7 +337,7 @@ Results ({len(results)} rows):
 
 Provide a natural language answer to the user's question."""
 
-    response = chat(system_prompt, user_prompt, temperature=0.3)
+    response = chat(system_prompt, user_prompt, temperature=0.3)  # <------- LLM CALL: synthesize response
     state["final_response"] = response
     return state
 
@@ -404,22 +405,31 @@ def query_and_store(state: GraphState) -> GraphState:
     state["stored_table"] = results
     state["stored_table_description"] = user_input
 
-    # Also print the table for verification
+    # Build table string for display and clipboard
     if results:
         columns = list(results[0].keys())
         header = " | ".join(f"{col:<20}" for col in columns)
         separator = "-" * len(header)
 
-        print(separator)
-        print(header)
-        print(separator)
-
+        # Build the full table as a string for clipboard
+        table_lines = [separator, header, separator]
         for row in results:
             row_str = " | ".join(f"{str(row.get(col, '')):<20}" for col in columns)
-            print(row_str)
+            table_lines.append(row_str)
+        table_lines.append(separator)
+        table_lines.append(f"Stored {len(results)} rows for later reference")
 
-        print(separator)
-        print(f"Stored {len(results)} rows for later reference")
+        # Print table (regular print for trace info)
+        for line in table_lines:
+            print(line)
+
+        # Copy summary to clipboard for accessibility
+        summary = f"Stored {len(results)} files: " + ", ".join(
+            str(row.get('name', row.get(columns[0], ''))) for row in results[:5]
+        )
+        if len(results) > 5:
+            summary += f" ... and {len(results) - 5} more"
+        print_copy(summary)
 
     state["final_response"] = f"Got it. I've noted {len(results)} files matching '{user_input}'. You can refer to them in follow-up requests."
     return state
@@ -435,11 +445,16 @@ def query_and_transform(state: GraphState) -> GraphState:
 
     Expects SQL to return source_path and dest_path columns.
     If dest_path is NULL, the file will be deleted.
+
+    Uses virtual filesystem (vfs) for operations when available.
+    TODO: Integrate PathGuard before enabling real filesystem operations.
     """
     results = state.get("query_result", [])
     error = state.get("query_error")
     user_input = state.get("user_input", "")
     plan = state.get("execution_plan")
+    vfs = state.get("vfs")
+    use_real_fs = state.get("use_real_fs", False)
 
     print(f"\n[NODE: query_and_transform]")
     print(f"User request: {user_input}")
@@ -453,33 +468,102 @@ def query_and_transform(state: GraphState) -> GraphState:
         state["final_response"] = "No files found matching your criteria for transformation."
         return state
 
+    # SAFETY CHECK: Never use real filesystem without explicit flag AND PathGuard
+    # TODO: Add PathGuard validation here before production use
+    if use_real_fs:
+        print("ERROR: Real filesystem operations not yet implemented. Requires PathGuard.")
+        state["final_response"] = "Real filesystem operations are disabled for safety."
+        state["operation_errors"] = ["Real filesystem operations require PathGuard integration"]
+        return state
+
     # Print planned operations
     print("\nPlanned file operations:")
     print("-" * 80)
-    print(f"{'Source Path':<40} | {'Destination':<35}")
+    print(f"{'Source Path':<40} | {'Destination':<35} | {'Status':<10}")
     print("-" * 80)
 
     delete_count = 0
     move_count = 0
+    success_count = 0
+    operation_results = []
+    operation_errors = []
 
     for row in results:
         source = row.get("source_path", "???")
         dest = row.get("dest_path")
+        status = "PENDING"
+        op_result = {"source": source, "dest": dest, "success": False, "error": None}
 
         if dest is None:
-            dest_display = "[DELETE]"
+            # DELETE operation
             delete_count += 1
+            if vfs:
+                try:
+                    result = vfs.delete(source)  # <------- FILE OPERATION: delete
+                    if result:
+                        status = "DELETED"
+                        op_result["success"] = True
+                        success_count += 1
+                    else:
+                        status = "NOT FOUND"
+                        op_result["error"] = "File not found"
+                        operation_errors.append(f"Delete failed - file not found: {source}")
+                except Exception as e:
+                    status = "ERROR"
+                    op_result["error"] = str(e)
+                    operation_errors.append(f"Delete error for {source}: {e}")
+            else:
+                status = "SKIPPED"
+                op_result["error"] = "No VFS available"
+            dest_display = "[DELETE]"
         else:
-            dest_display = dest
+            # MOVE/RENAME operation
             move_count += 1
+            if vfs:
+                try:
+                    # Check if destination directory exists
+                    dest_dir = "/".join(dest.replace("\\", "/").split("/")[:-1])
+                    if not vfs.exists(dest_dir):
+                        status = "DIR MISSING"
+                        op_result["error"] = f"Destination directory does not exist: {dest_dir}"
+                        operation_errors.append(f"Move failed - directory missing: {dest_dir}")
+                    else:
+                        file_id = vfs.move(source, dest)  # <------- FILE OPERATION: move
+                        if file_id:
+                            status = "MOVED"
+                            op_result["success"] = True
+                            success_count += 1
+                        else:
+                            status = "FAILED"
+                            op_result["error"] = "Move returned None"
+                            operation_errors.append(f"Move failed for {source}")
+                except Exception as e:
+                    status = "ERROR"
+                    op_result["error"] = str(e)
+                    operation_errors.append(f"Move error for {source}: {e}")
+            else:
+                status = "SKIPPED"
+                op_result["error"] = "No VFS available"
+            dest_display = dest
 
-        print(f"{source:<40} | {dest_display:<35}")
+        operation_results.append(op_result)
+        print(f"{source:<40} | {dest_display:<35} | {status:<10}")
 
     print("-" * 80)
     print(f"Total: {len(results)} files ({delete_count} deletes, {move_count} moves/renames)")
-    print("\n[STUB: No actual file operations performed]")
+    if vfs:
+        print(f"Completed: {success_count} successful, {len(operation_errors)} errors")
+    else:
+        print("[NO VFS: Operations not executed]")
 
-    state["final_response"] = f"Would process {len(results)} files: {delete_count} deletions, {move_count} moves/renames. (Stub - no actual changes made)"
+    state["operation_results"] = operation_results
+    state["operation_errors"] = operation_errors if operation_errors else None
+
+    if vfs:
+        state["final_response"] = f"Processed {len(results)} files: {success_count} successful, {len(operation_errors)} errors."
+    else:
+        state["final_response"] = f"Would process {len(results)} files: {delete_count} deletions, {move_count} moves/renames. (No VFS - operations skipped)"
+
     return state
 
 
@@ -492,11 +576,16 @@ def query_and_copy(state: GraphState) -> GraphState:
     Process file copy operations.
 
     Expects SQL to return source_path and dest_path columns.
+
+    Uses virtual filesystem (vfs) for operations when available.
+    TODO: Integrate PathGuard before enabling real filesystem operations.
     """
     results = state.get("query_result", [])
     error = state.get("query_error")
     user_input = state.get("user_input", "")
     plan = state.get("execution_plan")
+    vfs = state.get("vfs")
+    use_real_fs = state.get("use_real_fs", False)
 
     print(f"\n[NODE: query_and_copy]")
     print(f"User request: {user_input}")
@@ -510,22 +599,78 @@ def query_and_copy(state: GraphState) -> GraphState:
         state["final_response"] = "No files found matching your criteria for copying."
         return state
 
+    # SAFETY CHECK: Never use real filesystem without explicit flag AND PathGuard
+    # TODO: Add PathGuard validation here before production use
+    if use_real_fs:
+        print("ERROR: Real filesystem operations not yet implemented. Requires PathGuard.")
+        state["final_response"] = "Real filesystem operations are disabled for safety."
+        state["operation_errors"] = ["Real filesystem operations require PathGuard integration"]
+        return state
+
     # Print planned operations
     print("\nPlanned copy operations:")
     print("-" * 80)
-    print(f"{'Source Path':<40} | {'Destination':<35}")
+    print(f"{'Source Path':<40} | {'Destination':<35} | {'Status':<10}")
     print("-" * 80)
+
+    success_count = 0
+    operation_results = []
+    operation_errors = []
 
     for row in results:
         source = row.get("source_path", "???")
         dest = row.get("dest_path", "???")
-        print(f"{source:<40} | {dest:<35}")
+        status = "PENDING"
+        op_result = {"source": source, "dest": dest, "success": False, "error": None}
+
+        if vfs:
+            try:
+                # Check if destination directory exists
+                dest_dir = "/".join(dest.replace("\\", "/").split("/")[:-1])
+                if not vfs.exists(dest_dir):
+                    status = "DIR MISSING"
+                    op_result["error"] = f"Destination directory does not exist: {dest_dir}"
+                    operation_errors.append(f"Copy failed - directory missing: {dest_dir}")
+                elif not vfs.exists(source):
+                    status = "NOT FOUND"
+                    op_result["error"] = f"Source file does not exist: {source}"
+                    operation_errors.append(f"Copy failed - source not found: {source}")
+                else:
+                    file_id = vfs.copy(source, dest)  # <------- FILE OPERATION: copy
+                    if file_id:
+                        status = "COPIED"
+                        op_result["success"] = True
+                        success_count += 1
+                    else:
+                        status = "FAILED"
+                        op_result["error"] = "Copy returned None"
+                        operation_errors.append(f"Copy failed for {source}")
+            except Exception as e:
+                status = "ERROR"
+                op_result["error"] = str(e)
+                operation_errors.append(f"Copy error for {source}: {e}")
+        else:
+            status = "SKIPPED"
+            op_result["error"] = "No VFS available"
+
+        operation_results.append(op_result)
+        print(f"{source:<40} | {dest:<35} | {status:<10}")
 
     print("-" * 80)
     print(f"Total: {len(results)} files to copy")
-    print("\n[STUB: No actual file operations performed]")
+    if vfs:
+        print(f"Completed: {success_count} successful, {len(operation_errors)} errors")
+    else:
+        print("[NO VFS: Operations not executed]")
 
-    state["final_response"] = f"Would copy {len(results)} files. (Stub - no actual changes made)"
+    state["operation_results"] = operation_results
+    state["operation_errors"] = operation_errors if operation_errors else None
+
+    if vfs:
+        state["final_response"] = f"Copied {success_count} of {len(results)} files. {len(operation_errors)} errors."
+    else:
+        state["final_response"] = f"Would copy {len(results)} files. (No VFS - operations skipped)"
+
     return state
 
 
@@ -660,7 +805,7 @@ def direct_answer_handler(state: GraphState) -> GraphState:
 The user has said something that doesn't require accessing their files.
 Respond naturally and helpfully. Keep responses concise."""
 
-        response = chat(system_prompt, user_input, temperature=0.7)
+        response = chat(system_prompt, user_input, temperature=0.7)  # <------- LLM CALL: direct answer
         state["final_response"] = response
 
     return state

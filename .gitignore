@@ -22,3 +22,6 @@ directories.tsv
 files.tsv
 volumes.tsv
 *.sqlite
+
+ app_2/graph_diagram.mmd
+ app_2/graph_diagram.png

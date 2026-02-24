@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(python fs_load.py:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

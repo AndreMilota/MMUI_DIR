@@ -417,6 +417,50 @@ def test_conditional_renaming():
     )
 
 
+def test_metadata_from_filename():
+    """
+    Test: Fix metadata from filename or vice versa.
+
+    This is a semantic/AI task that requires understanding:
+    - What metadata fields exist
+    - How to extract information from filenames
+    - How to generate corrections
+
+    The SQL should retrieve the relevant files with their metadata and filenames,
+    then the LLM will analyze and suggest fixes.
+
+    Expected: query_feed_llm (requires semantic understanding)
+    """
+    print("\n" + "="*70)
+    print("TEST CATEGORY: SQL-INCAPABLE - Metadata/filename reconciliation")
+    print("="*70)
+
+    _, _, db_path = setup_escalation_filesystem("metadata")
+    NOW = "2026-02-15 12:00:00"
+
+    result = run_test(
+        "Fix metadata from filename",
+        "In C:/Music/Playlist, see if you can fix the metadata from the file name and vice versa",
+        db_path, NOW,
+        expected_action="query_feed_llm"
+    )
+
+    # Verify the SQL retrieves both filename and metadata columns
+    sql = result.get('sql', '').lower()
+    has_name = 'name' in sql or 'files.name' in sql
+    has_metadata = any(col in sql for col in ['tag_artist', 'tag_title', 'tag_album', 'duration'])
+
+    if has_name:
+        print("SQL includes filename column: PASSED")
+    else:
+        print("WARNING: SQL may not include filename column")
+
+    if has_metadata:
+        print("SQL includes metadata columns: PASSED")
+    else:
+        print("WARNING: SQL may not include metadata columns")
+
+
 # =============================================================================
 # Test Runners
 # =============================================================================
@@ -447,6 +491,7 @@ def test_sql_incapable():
     test_semantic_ai_renaming()
     test_pattern_based_extraction()
     test_conditional_renaming()
+    test_metadata_from_filename()
 
 
 def test_all_escalation():

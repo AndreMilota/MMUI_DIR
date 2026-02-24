@@ -510,7 +510,7 @@ class MockFiles:
         return file_id
 
     # Media type classifications
-    AUDIO_EXTENSIONS = frozenset(['mp3', 'wav', 'flac', 'aac', 'ogg', 'wma', 'm4a', 'opus'])
+    AUDIO_EXTENSIONS = frozenset(['mp3', 'wav', 'flac', 'aac', 'ogg', 'wma', 'm4a', 'opus', 'aiff', 'aif'])
     VIDEO_EXTENSIONS = frozenset(['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', 'mpeg', 'mpg'])
     IMAGE_EXTENSIONS = frozenset(['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'webp', 'svg', 'ico'])
 

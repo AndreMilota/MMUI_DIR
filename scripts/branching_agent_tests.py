@@ -106,7 +106,7 @@ def setup_test_filesystem(test_name: str = "default"):
     fs.set_time("2026-01-20 00:00:00")
     fs.save_m("hey_jude.mp3", duration=430, bitrate=320000)
 
-    # Music - Rock
+    # Music - Rock (MP3 files)
     fs.cd("C:/Music/Rock")
     fs.set_file_defaults(tag_artist=None, channels=2)
     fs.set_time("2026-02-03 00:00:00")
@@ -114,7 +114,15 @@ def setup_test_filesystem(test_name: str = "default"):
     fs.save_m("stairway_to_heaven.mp3", duration=482, bitrate=320000, tag_artist="Led Zeppelin")
     fs.save_m("Yellow Submarine.mp3", duration=482, bitrate=320000, tag_artist="The Beatles")  # Same artist but different folder
 
-    Total_length_of_Beatles_files = 180 + 240 + 430 + 482  # Sum of durations of Beatles files for testing aggregate queries
+    # Music - Other formats (WAV and AIFF to test different audio types)
+    fs.mkdir("C:/Music/HighRes")
+    fs.cd("C:/Music/HighRes")
+    fs.set_time("2026-02-05 00:00:00")
+    fs.save_m("classical_piece.wav", duration=300, bitrate=1411000, tag_artist="Mozart")  # 5 minutes
+    fs.save_m("jazz_track.aiff", duration=240, bitrate=1411000, tag_artist="Miles Davis")  # 4 minutes
+
+    # Total music duration: 180 + 240 + 430 + 354 + 482 + 482 + 300 + 240 = 2708 seconds = 45.13 minutes
+    TOTAL_MUSIC_DURATION_SECONDS = 180 + 240 + 430 + 354 + 482 + 482 + 300 + 240  # 2708 seconds
     # Pictures
     fs.cd("C:/Pictures/Vacation")
     fs.set_file_defaults(tag_artist=None, channels=None)
@@ -164,10 +172,10 @@ def test_query_respond() -> None:
         assert count == 6, f"Expected 6 MP3 files, got {count}"
         print("COUNT CHECK PASSED: 6 MP3 files")
 
-    # Test 2: Sum/aggregate query
+    # Test 2: Sum/aggregate query - total duration of ALL music files (mp3, wav, aiff, etc.)
     result = run_test(
         "Total music duration",
-        "How many minutes of Beatles music do I have?",
+        "How many minutes of music do I have in total?",
         db_path, NOW,
         expected_action="query_respond"
     )
@@ -216,7 +224,7 @@ def test_query_store():
     _, _, db_path = setup_test_filesystem("store")
     NOW = "2026-02-15 12:00:00"
 
-    # Test: Store for later reference
+    # Test 1: Store for later reference
     result = run_test(
         "Store files for later",
         "Remember the MP3 files in my Beatles folder",
@@ -227,6 +235,36 @@ def test_query_store():
     # Check that table was stored
     assert result.get('stored_table') is not None, "Expected stored_table to be set"
     print(f"STORED TABLE CHECK PASSED: {len(result['stored_table'])} rows stored")
+
+    # Test 2: Store simple file list with directory info
+    result = run_test(
+        "Store file list with paths",
+        "Note down all the files in C:/Music along with their directories",
+        db_path, NOW,
+        expected_action="query_store"
+    )
+    assert result.get('stored_table') is not None, "Expected stored_table to be set"
+    print(f"STORED TABLE CHECK PASSED: {len(result['stored_table'])} rows stored")
+
+    # Test 3: Store files with specific columns (name+extension, artist)
+    result = run_test(
+        "Store files with artist info",
+        "Remember all music files showing filename and artist for each",
+        db_path, NOW,
+        expected_action="query_store"
+    )
+    assert result.get('stored_table') is not None, "Expected stored_table to be set"
+    stored = result['stored_table']
+    if stored:
+        cols = list(stored[0].keys())
+        print(f"Columns returned: {cols}")
+        # Check if artist-related column exists
+        has_artist = any('artist' in c.lower() or 'tag_artist' in c.lower() for c in cols)
+        if has_artist:
+            print("ARTIST COLUMN CHECK PASSED")
+        else:
+            print(f"Note: Artist column not found in {cols}")
+    print(f"STORED TABLE CHECK PASSED: {len(stored)} rows stored")
 
 
 def test_query_transform():

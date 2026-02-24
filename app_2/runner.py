@@ -8,6 +8,7 @@ import time
 
 from app_2.graph import build_app
 from app.utills.time_utils import parse_human_time, now_ns_and_iso_from_dt
+from app.utils.clipboard import print_copy
 
 
 def run_query(
@@ -59,14 +60,17 @@ def run_query(
     if db_path is not None:
         state_in["db_path"] = db_path
 
+    # Print user request to clipboard for accessibility
+    print_copy(f"User request: {user_input}")
+
     # Run the graph
     state_out = app.invoke(state_in)
 
     # Extract execution plan details
     plan = state_out.get("execution_plan")
 
-    # print the result
-    print(f"Execution results: {state_out.get('final_response')}")
+    # Print and copy the response for accessibility
+    print_copy(f"Response: {state_out.get('final_response')}")
 
     return {
         "action_type": plan.action_type.value if plan else None,

@@ -77,6 +77,11 @@ class GraphState(TypedDict, total=False):
     # Database
     db_path: Optional[str]                       # Path to SQLite database
 
+    # Virtual Filesystem (for testing file operations)
+    # TODO: Integrate PathGuard before enabling real filesystem operations
+    vfs: Optional[Any]                           # MockFiles instance for virtual filesystem
+    use_real_fs: bool                            # If True, use real filesystem (DANGEROUS - requires PathGuard)
+
     # Classification output
     execution_plan: Optional[ExecutionPlan]      # Structured plan from classifier
 
@@ -84,6 +89,10 @@ class GraphState(TypedDict, total=False):
     sql: Optional[str]                           # SQL query (copied from plan for convenience)
     query_result: Optional[List[Dict[str, Any]]] # Rows returned from database
     query_error: Optional[str]                   # Error message if query fails
+
+    # File operation results
+    operation_results: Optional[List[Dict[str, Any]]]  # Results of file operations (success/failure per file)
+    operation_errors: Optional[List[str]]        # Errors encountered during file operations
 
     # Multi-turn storage
     stored_table: Optional[List[Dict[str, Any]]] # Table stored for follow-up queries
