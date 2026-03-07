@@ -23,7 +23,7 @@ def visualize():
     # Generate Mermaid diagram (always works)
     print("Generating Mermaid diagram...")
     mermaid_text = graph.draw_mermaid()
-    mermaid_path = os.path.join(output_dir, "graph_diagram.mmd")
+    mermaid_path = os.path.join(output_dir, "../../app_2/graph_diagram.mmd")
     with open(mermaid_path, "w") as f:
         f.write(mermaid_text)
     print(f"Mermaid diagram saved to: {mermaid_path}")
@@ -36,7 +36,7 @@ def visualize():
     try:
         print("Attempting to generate PNG image...")
         png_data = graph.draw_mermaid_png()
-        png_path = os.path.join(output_dir, "graph_diagram.png")
+        png_path = os.path.join(output_dir, "../../app_2/graph_diagram.png")
         with open(png_path, "wb") as f:
             f.write(png_data)
         print(f"PNG image saved to: {png_path}")
