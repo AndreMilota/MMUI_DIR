@@ -1,29 +1,22 @@
-# scripts/sql_escalation_test.py
+# scripts/app_2/test_query_feed_llm.py
 """
-Tests for SQL escalation logic in the branching LangGraph workflow.
+Tests for the query_feed_llm branch of the app_2 LangGraph workflow.
 
-These tests verify that the classifier correctly chooses between:
-- query_transform/query_copy: When SQL can fully generate both source_path and dest_path
-- query_feed_llm: When the transformation requires capabilities beyond SQLite's string functions
+query_feed_llm handles file operations that require AI processing -
+specifically renaming/restructuring tasks that are beyond what SQLite's
+string functions can express (no regex, no pattern capture groups, etc.).
 
-SQLite String Manipulation Capabilities:
-- || (concatenation): Can construct paths from parts
-- REPLACE(str, from, to): Can replace fixed substrings
-- SUBSTR(str, start, length): Can extract/remove fixed-position characters
-- INSTR(str, search): Can find position of fixed substring
-- LTRIM/RTRIM/TRIM: Can remove whitespace or specific characters
-- UPPER/LOWER: Case conversion (but not CamelCase manipulation)
+This file contains two sections:
+  1. Basic routing test (from branching_agent_tests.py)
+  2. SQL-incapable escalation tests (from sql_escalation_test.py)
+     These verify that complex transforms correctly escalate FROM
+     query_transform/query_copy TO query_feed_llm.
 
-SQLite String Manipulation LIMITATIONS (require LLM escalation):
-- No regex replacement (can't do pattern-based substitutions)
-- Can't handle variable-length prefixes (e.g., "remove leading digits")
-- Can't do CamelCase to snake_case conversion
-- Can't intelligently parse semantic patterns (e.g., "remove (copy)" suffixes with varying content)
-- Can't make context-dependent decisions about renaming
-
-Test Categories:
-1. SQL-capable transformations (should route to query_transform/query_copy)
-2. SQL-incapable transformations (should route to query_feed_llm)
+SQLite CAN do: REPLACE with fixed strings, SUBSTR with fixed positions,
+               simple concatenation, UPPER/LOWER.
+SQLite CANNOT do: regex replacement, variable-length prefix removal,
+                  CamelCase conversion, pattern-based restructuring,
+                  or context-dependent renaming decisions.
 """
 import os
 from file_scan.fs_database import FSDatabase
@@ -33,7 +26,13 @@ from file_scan.mock_file_system.mock_fs_reader import MockFSReader
 from app_2.runner import run_query
 
 
-def make_test_filesystem(name: str = "escalation_test_fs") -> MockFiles:
+# ===========================================================================
+# SHARED TEST INFRASTRUCTURE
+# Duplicated in each branch test file so each file runs standalone.
+# Original source: branching_agent_tests.py
+# ===========================================================================
+
+def make_test_filesystem(name: str = "test_fs") -> MockFiles:
     """Create a fresh mock filesystem for testing."""
     db_filename = f"{name}.sqlite"
     if os.path.exists(db_filename):
@@ -44,7 +43,7 @@ def make_test_filesystem(name: str = "escalation_test_fs") -> MockFiles:
     return vfs
 
 
-def get_fresh_database(name: str = "escalation_test_db") -> FSDatabase:
+def get_fresh_database(name: str = "test_db") -> FSDatabase:
     """Create a fresh database for testing."""
     db_path = f"{name}.sqlite"
     if os.path.exists(db_path):
@@ -80,6 +79,86 @@ def run_test(label: str, query: str, db_path: str, now: str, expected_action: st
     return result
 
 
+# ===========================================================================
+# TEST FILESYSTEM SETUP - GENERAL
+# Source: branching_agent_tests.py
+# Rich mock filesystem with music, documents, and pictures.
+# Used by the basic routing test below.
+# ===========================================================================
+
+def setup_test_filesystem(test_name: str = "default"):
+    """
+    Set up a realistic test filesystem with various file types.
+    Returns (mock_fs, database, db_path)
+    """
+    fs = make_test_filesystem(f"branching_fs_{test_name}")
+
+    fs.mkdir("C:/Documents/Reports")
+    fs.mkdir("C:/Documents/Letters")
+    fs.mkdir("C:/Music/Beatles")
+    fs.mkdir("C:/Music/Rock")
+    fs.mkdir("C:/Pictures/Vacation")
+    fs.mkdir("C:/Downloads/Temp")
+
+    fs.cd("C:/Documents/Reports")
+    fs.set_time("2026-01-10 00:00:00")
+    fs.save("quarterly_report.txt", size_bytes=2048)
+    fs.save("annual_summary.txt", size_bytes=4096)
+    fs.set_time("2026-02-10 00:00:00")
+    fs.save("meeting_notes.txt", size_bytes=512)
+
+    fs.cd("C:/Documents/Letters")
+    fs.set_time("2026-02-01 00:00:00")
+    fs.save("cover_letter.txt", size_bytes=300)
+    fs.save("thank_you.txt", size_bytes=400)
+
+    fs.cd("C:/Music/Beatles")
+    fs.set_file_defaults(tag_artist="The Beatles", channels=2)
+    fs.set_time("2026-01-05 00:00:00")
+    fs.save_m("yesterday.mp3", duration=180, bitrate=320000)
+    fs.save_m("let_it_be.mp3", duration=240, bitrate=320000)
+    fs.set_time("2026-01-20 00:00:00")
+    fs.save_m("hey_jude.mp3", duration=430, bitrate=320000)
+
+    fs.cd("C:/Music/Rock")
+    fs.set_file_defaults(tag_artist=None, channels=2)
+    fs.set_time("2026-02-03 00:00:00")
+    fs.save_m("bohemian_rhapsody.mp3", duration=354, bitrate=320000, tag_artist="Queen")
+    fs.save_m("stairway_to_heaven.mp3", duration=482, bitrate=320000, tag_artist="Led Zeppelin")
+    fs.save_m("Yellow Submarine.mp3", duration=482, bitrate=320000, tag_artist="The Beatles")
+
+    fs.mkdir("C:/Music/HighRes")
+    fs.cd("C:/Music/HighRes")
+    fs.set_time("2026-02-05 00:00:00")
+    fs.save_m("classical_piece.wav", duration=300, bitrate=1411000, tag_artist="Mozart")
+    fs.save_m("jazz_track.aiff", duration=240, bitrate=1411000, tag_artist="Miles Davis")
+
+    fs.cd("C:/Pictures/Vacation")
+    fs.set_file_defaults(tag_artist=None, channels=None)
+    fs.set_time("2026-01-15 00:00:00")
+    fs.save("beach_sunset.jpg", size_bytes=2500000)
+    fs.save("mountain_view.jpg", size_bytes=3200000)
+    fs.save("family_photo.jpg", size_bytes=1800000)
+
+    fs.cd("C:/Downloads/Temp")
+    fs.set_time("2025-12-01 00:00:00")
+    fs.save("old_installer.exe", size_bytes=50000000)
+    fs.save("temp_data.tmp", size_bytes=1024)
+    fs.save("cache_file.tmp", size_bytes=2048)
+
+    db = get_fresh_database(f"branching_db_{test_name}")
+    reader = MockFSReader(fs)
+    scan_path_into_db(root_path="C:/", db=db, reader=reader)
+
+    return fs, db, db.db_path
+
+
+# ===========================================================================
+# TEST FILESYSTEM SETUP - ESCALATION SCENARIOS
+# Source: sql_escalation_test.py
+# Filesystem designed to expose the limits of SQLite string manipulation.
+# ===========================================================================
+
 def setup_escalation_filesystem(test_name: str = "escalation"):
     """
     Set up a filesystem specifically designed to test SQL escalation scenarios.
@@ -91,73 +170,49 @@ def setup_escalation_filesystem(test_name: str = "escalation"):
     - Copy suffixes like (1), (2), (copy) (SQL cannot handle cleanly)
     - Files needing semantic/AI-based renaming
     """
-    NOW = "2026-02-15 12:00:00"
-
     fs = make_test_filesystem(f"escalation_fs_{test_name}")
 
-    # Directory for fixed-prefix tests (SQL CAN handle)
     fs.mkdir("C:/Projects/Archive")
-    fs.mkdir("C:/Projects/Active")
     fs.cd("C:/Projects/Archive")
     fs.set_time("2026-01-15 00:00:00")
-    # Files with fixed "archive_" prefix
     fs.save("archive_report.txt", size_bytes=1024)
     fs.save("archive_summary.txt", size_bytes=2048)
     fs.save("archive_notes.txt", size_bytes=512)
-    # Files with fixed "old_" prefix
     fs.save("old_data.csv", size_bytes=4096)
     fs.save("old_backup.csv", size_bytes=3072)
 
-    # Directory for numeric prefix tests (SQL CANNOT handle)
     fs.mkdir("C:/Music/Playlist")
     fs.cd("C:/Music/Playlist")
     fs.set_time("2026-01-20 00:00:00")
-    # Variable-length numeric prefixes - SQL can't handle these with regex
     fs.save("01_first_song.mp3", size_bytes=5000000)
     fs.save("02_second_song.mp3", size_bytes=5500000)
     fs.save("10_tenth_song.mp3", size_bytes=4800000)
     fs.save("123_numbered_track.mp3", size_bytes=5200000)
 
-    # Directory for CamelCase tests (SQL CANNOT handle)
     fs.mkdir("C:/Code/Classes")
     fs.cd("C:/Code/Classes")
     fs.set_time("2026-02-01 00:00:00")
-    # CamelCase filenames that might need snake_case conversion
     fs.save("UserAccountManager.py", size_bytes=8192)
     fs.save("HttpRequestHandler.py", size_bytes=6144)
     fs.save("DataProcessingService.py", size_bytes=10240)
 
-    # Directory for copy suffix tests (SQL CANNOT handle cleanly)
     fs.mkdir("C:/Documents/Duplicates")
     fs.cd("C:/Documents/Duplicates")
     fs.set_time("2026-02-05 00:00:00")
-    # Files with various copy-style suffixes
     fs.save("report.txt", size_bytes=1024)
     fs.save("report (1).txt", size_bytes=1024)
     fs.save("report (2).txt", size_bytes=1024)
     fs.save("budget (copy).txt", size_bytes=2048)
     fs.save("budget (another copy).txt", size_bytes=2048)
 
-    # Directory for simple move/copy tests (SQL CAN handle)
-    fs.mkdir("C:/Downloads/Unsorted")
-    fs.mkdir("C:/Downloads/Sorted")
-    fs.cd("C:/Downloads/Unsorted")
-    fs.set_time("2026-02-10 00:00:00")
-    fs.save("file1.pdf", size_bytes=102400)
-    fs.save("file2.pdf", size_bytes=204800)
-    fs.save("image.jpg", size_bytes=1024000)
-
-    # Directory for semantic/AI renaming (absolutely needs LLM)
     fs.mkdir("C:/Photos/Vacation")
     fs.cd("C:/Photos/Vacation")
     fs.set_time("2026-02-12 00:00:00")
-    # Generic camera filenames that need intelligent renaming
     fs.save("IMG_0001.jpg", size_bytes=3000000)
     fs.save("IMG_0002.jpg", size_bytes=3200000)
     fs.save("DSC_1234.jpg", size_bytes=2800000)
     fs.save("DCIM0099.jpg", size_bytes=3100000)
 
-    # Scan into database
     db = get_fresh_database(f"escalation_db_{test_name}")
     reader = MockFSReader(fs)
     scan_path_into_db(root_path="C:/", db=db, reader=reader)
@@ -165,107 +220,34 @@ def setup_escalation_filesystem(test_name: str = "escalation"):
     return fs, db, db.db_path
 
 
-# =============================================================================
-# Tests for SQL-CAPABLE transformations (should use query_transform/query_copy)
-# =============================================================================
+# ===========================================================================
+# FROM: branching_agent_tests.py
+# Basic routing test - verify the branch is selected correctly.
+# ===========================================================================
 
-def test_simple_move_to_directory():
-    """
-    Test: Move all files from one directory to another.
-
-    SQL CAN handle this: Simply construct dest_path by replacing the
-    directory portion of the path. Uses basic string concatenation.
-
-    Expected: query_transform (pure SQL can generate both columns)
-    """
+def test_query_feed_llm():
+    """Test query_feed_llm branch - AI processing."""
     print("\n" + "="*70)
-    print("TEST CATEGORY: SQL-CAPABLE - Simple directory move")
+    print("TESTING: query_feed_llm (AI processing)")
     print("="*70)
 
-    _, _, db_path = setup_escalation_filesystem("simple_move")
+    _, _, db_path = setup_test_filesystem("feed_llm")
     NOW = "2026-02-15 12:00:00"
 
     run_test(
-        "Move PDFs to another directory",
-        "Move all PDF files from C:/Downloads/Unsorted to C:/Downloads/Sorted",
+        "AI rename files",
+        "Use AI to suggest better names for my vacation photos based on their metadata",
         db_path, NOW,
-        expected_action="query_transform"
+        expected_action="query_feed_llm"
     )
 
 
-def test_delete_files():
-    """
-    Test: Delete files matching criteria.
-
-    SQL CAN handle this: dest_path is simply NULL for deletions.
-
-    Expected: query_transform (pure SQL can generate both columns)
-    """
-    print("\n" + "="*70)
-    print("TEST CATEGORY: SQL-CAPABLE - Delete files")
-    print("="*70)
-
-    _, _, db_path = setup_escalation_filesystem("delete")
-    NOW = "2026-02-15 12:00:00"
-
-    run_test(
-        "Delete old archive files",
-        "Delete all the .txt files in C:/Projects/Archive",
-        db_path, NOW,
-        expected_action="query_transform"
-    )
-
-
-def test_fixed_prefix_removal():
-    """
-    Test: Remove a fixed, known prefix from filenames.
-
-    SQL CAN handle this: REPLACE(name, 'archive_', '') works perfectly
-    for fixed string prefixes.
-
-    Expected: query_transform (REPLACE function can do this)
-    """
-    print("\n" + "="*70)
-    print("TEST CATEGORY: SQL-CAPABLE - Fixed prefix removal")
-    print("="*70)
-
-    _, _, db_path = setup_escalation_filesystem("fixed_prefix")
-    NOW = "2026-02-15 12:00:00"
-
-    run_test(
-        "Remove 'archive_' prefix from filenames",
-        "Rename all files in C:/Projects/Archive by removing the 'archive_' prefix from their names",
-        db_path, NOW,
-        expected_action="query_transform"
-    )
-
-
-def test_simple_copy():
-    """
-    Test: Copy files to a new directory.
-
-    SQL CAN handle this: Same as move, just construct new dest_path.
-
-    Expected: query_copy (pure SQL can generate both columns)
-    """
-    print("\n" + "="*70)
-    print("TEST CATEGORY: SQL-CAPABLE - Simple copy")
-    print("="*70)
-
-    _, _, db_path = setup_escalation_filesystem("simple_copy")
-    NOW = "2026-02-15 12:00:00"
-
-    run_test(
-        "Copy JPGs to backup",
-        "Copy all JPG files from C:/Downloads/Unsorted to C:/Backup/Images",
-        db_path, NOW,
-        expected_action="query_copy"
-    )
-
-
-# =============================================================================
-# Tests for SQL-INCAPABLE transformations (should escalate to query_feed_llm)
-# =============================================================================
+# ===========================================================================
+# FROM: sql_escalation_test.py
+# SQL-INCAPABLE escalation tests.
+# These operations exceed SQLite's string capabilities and must escalate
+# to query_feed_llm.
+# ===========================================================================
 
 def test_variable_numeric_prefix_removal():
     """
@@ -461,23 +443,6 @@ def test_metadata_from_filename():
         print("WARNING: SQL may not include metadata columns")
 
 
-# =============================================================================
-# Test Runners
-# =============================================================================
-
-def test_sql_capable():
-    """Run all SQL-capable tests (should route to query_transform/query_copy)."""
-    print("\n" + "#"*70)
-    print("# RUNNING SQL-CAPABLE TESTS")
-    print("# These should route to query_transform or query_copy")
-    print("#"*70)
-
-    test_simple_move_to_directory()
-    test_delete_files()
-    test_fixed_prefix_removal()
-    test_simple_copy()
-
-
 def test_sql_incapable():
     """Run all SQL-incapable tests (should escalate to query_feed_llm)."""
     print("\n" + "#"*70)
@@ -494,19 +459,23 @@ def test_sql_incapable():
     test_metadata_from_filename()
 
 
-def test_all_escalation():
-    """Run all escalation tests."""
+# ===========================================================================
+# TEST RUNNER
+# ===========================================================================
+
+def test_all_feed_llm():
+    """Run all query_feed_llm tests."""
     print("\n" + "#"*70)
-    print("# RUNNING ALL SQL ESCALATION TESTS")
+    print("# RUNNING ALL query_feed_llm TESTS")
     print("#"*70)
 
-    test_sql_capable()
+    test_query_feed_llm()
     test_sql_incapable()
 
     print("\n" + "#"*70)
-    print("# ALL ESCALATION TESTS COMPLETED")
+    print("# query_feed_llm TESTS COMPLETED")
     print("#"*70)
 
 
 if __name__ == "__main__":
-    test_all_escalation()
+    test_all_feed_llm()
