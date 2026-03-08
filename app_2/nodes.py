@@ -173,6 +173,153 @@ The LLM processing node will then use these columns to generate dest_path values
 
 
 # -----------------------------------------------------------------------------
+# Default Scope Guidance - Modular Prompt Component
+# -----------------------------------------------------------------------------
+#
+# MODULARIZATION MECHANISM EXPLANATION:
+#
+# This variable controls how the classifier generates SQL when the user
+# specifies (or doesn't specify) a directory. It enforces the principle of
+# least surprise: if you ask about "C:/Documents", you mean that folder,
+# not every file buried in subdirectories.
+#
+# WHY MODULARIZE THIS?
+# ---------------------
+# This guidance is broadly applicable — it should be injected into the
+# classifier whenever the action type involves a database query (query_display,
+# query_respond, query_store, query_transform, query_copy, query_feed_llm).
+# Keeping it in one variable means it can be updated once and the change
+# propagates to every prompt that includes it.
+#
+# FUTURE OPTIMIZATION POSSIBILITIES:
+# ----------------------------------
+# - Keyword spotting: detect "recursively", "all subfolders", "anywhere in"
+#   etc. and conditionally override the default (could also let the model do
+#   this, but a deterministic pre-check saves tokens and is more reliable).
+#
+# - User preference layer: allow a per-session preference ("always recurse by
+#   default") stored in GraphState that overrides this guidance.
+#
+# HOW TO USE CONDITIONALLY:
+# -------------------------
+# Currently always included. To make conditional:
+#
+#   scope_section = DEFAULT_SCOPE_GUIDANCE if action_involves_db else ""
+#
+# -----------------------------------------------------------------------------
+
+DEFAULT_SCOPE_GUIDANCE = """
+## Default Query Scope: Current Directory Level Only
+
+When the user specifies a particular directory path, query ONLY the files
+directly at that level — do NOT include files in subdirectories.
+
+Use an exact match:
+  WHERE directories.dir_path = 'C:/Some/Path'
+
+NOT a LIKE pattern:
+  WHERE directories.dir_path LIKE 'C:/Some/Path/%'  ← wrong unless recursive requested
+
+Recurse into subdirectories ONLY when the user explicitly indicates it:
+- "including subfolders / subdirectories"
+- "recursively" / "and all subfolders"
+- No specific directory is given at all (e.g. "find all my MP3s" — must scan everywhere)
+- The user names a root or drive with no subdirectory (e.g. "everything on C:")
+
+Examples:
+- "Show files in C:/Documents" → exact match only (C:/Documents)
+- "Show files in C:/Documents and its subfolders" → LIKE pattern
+- "Find all .log files" → recursive (no directory specified)
+"""
+
+
+# -----------------------------------------------------------------------------
+# Query Display Guidance - Modular Prompt Component
+# -----------------------------------------------------------------------------
+#
+# MODULARIZATION MECHANISM EXPLANATION:
+#
+# This variable contains formatting rules that apply specifically to the
+# query_display branch. They govern which columns to SELECT and how to
+# present timestamps and paths so the rendered table is immediately readable.
+#
+# WHY MODULARIZE THIS?
+# ---------------------
+# 1. CONDITIONAL INCLUSION: This guidance only needs to be injected when the
+#    classifier has determined (or is likely to determine) that the action is
+#    query_display. A pre-classifier or keyword spotter could detect display
+#    intent ("show me", "list", "what files") and include this guidance only
+#    then, reducing prompt size for other branches.
+#
+# 2. A/B TESTING: Column layout and time formatting are stylistic choices.
+#    Keeping them in one place makes it easy to experiment with alternatives
+#    (e.g. ISO-8601 vs "Jan 10 2026", separate path/name vs combined).
+#
+# 3. MODEL-SPECIFIC TUNING: Smaller models may need more explicit examples;
+#    larger models may need only the rules. This variable can be swapped per
+#    model without touching the rest of the prompt.
+#
+# FUTURE OPTIMIZATION POSSIBILITIES:
+# ----------------------------------
+# - RAG retrieval: store multiple display style snippets in a vector store and
+#   retrieve the most relevant one based on the query (e.g. "music files" →
+#   retrieve guidance that also includes duration/bitrate columns).
+#
+# - Keyword spotting: detect "full path", "with path", "just names" etc. to
+#   override the defaults before sending to the model.
+#
+# - User preference layer: persist display preferences in GraphState
+#   (e.g. prefer ISO timestamps, always show full path) and inject overrides
+#   here at runtime.
+#
+# HOW TO USE CONDITIONALLY:
+# -------------------------
+# Currently always included. To make conditional:
+#
+#   def looks_like_display_query(user_input: str) -> bool:
+#       keywords = ['show', 'list', 'display', 'what files', 'which files']
+#       return any(kw in user_input.lower() for kw in keywords)
+#
+#   display_section = QUERY_DISPLAY_GUIDANCE if looks_like_display_query(user_input) else ""
+#
+# -----------------------------------------------------------------------------
+
+QUERY_DISPLAY_GUIDANCE = """
+## Display Formatting Rules (query_display)
+
+### 1. Timestamps — Human-Readable by Default
+When selecting time columns (mtime_ns, ctime_ns), convert them to a readable
+string unless the user asks for raw or numeric values:
+  datetime(mtime_ns / 1000000000, 'unixepoch') AS modified
+  datetime(ctime_ns / 1000000000, 'unixepoch') AS created
+
+### 2. Path Column — Based on SQL Structure, Not Query Wording
+
+The rule is simple: look at the WHERE clause you are about to write.
+
+- If the WHERE clause pins results to ONE exact directory using
+  `directories.dir_path = 'C:/Some/Path'` (exact equality, not LIKE),
+  then ALL results come from that same location. The path is already
+  known to the user — do NOT include a path column. Select filename only:
+    files.name || CASE WHEN files.extension != '' THEN '.' || files.extension ELSE '' END AS filename
+
+  This applies even when filtering by other attributes (artist, size,
+  date, type, etc.) — if the directory is pinned, filename only is correct.
+  Example: "list Beatles files in C:/Music/Beatles" → exact dir filter →
+  filename column only, even though the filter is on tag_artist.
+
+- If the WHERE clause uses LIKE for a directory prefix, has no directory
+  filter, or could match files across multiple directories, include the
+  directory path in its own dedicated column:
+    directories.dir_path AS path,
+    files.name || CASE WHEN files.extension != '' THEN '.' || files.extension ELSE '' END AS filename
+
+  Do NOT concatenate path and filename into one long string — keep them
+  as separate columns so the table is easy to scan.
+"""
+
+
+# -----------------------------------------------------------------------------
 # Classification Node
 # -----------------------------------------------------------------------------
 
@@ -220,6 +367,10 @@ For query_feed_llm (when SQL cannot generate dest_path):
 - The LLM will then generate the dest_path values based on the retrieved data
 
 {SQL_ESCALATION_GUIDANCE}
+
+{DEFAULT_SCOPE_GUIDANCE}
+
+{QUERY_DISPLAY_GUIDANCE}
 
 For query_respond: SQL should return a single value (COUNT, SUM, etc.)
 

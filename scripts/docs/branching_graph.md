@@ -94,8 +94,11 @@ graph TD;
 - "How many minutes of Beatles music do I have?"
 
 ### query_display
-- "Show me all files in C:/Music/Beatles"
-- "List all text files I have"
+- "Show me all files in C:/Music/Beatles" → filename column only (single pinned directory)
+- "List all Beatles songs in C:/Music/Beatles" → filename only, even though filter is on tag_artist
+- "List all text files I have" → path + filename columns (no directory pinned, scans everywhere)
+- "Show MP3s in C:/Music and its subfolders" → path + filename columns (recursive)
+- Timestamps are shown human-readable by default (e.g. `2026-01-10 12:00:00`)
 
 ### query_store
 - "Remember the MP3 files in my Beatles folder"
@@ -103,12 +106,15 @@ graph TD;
 ### query_transform
 - "Delete all .tmp files in C:/Downloads/Temp"
 - "Move all files from C:/Downloads to C:/Archive"
+- "Rename all files in C:/Projects/Archive by removing the 'archive_' prefix"
 
 ### query_copy
 - "Copy all jpg files from C:/Pictures to C:/Backup"
+- "Update C:/Photos/Backup so it has all the files from C:/Photos/Camera — only copy files not already there" (sync copy using NOT EXISTS)
 
 ### query_feed_llm
 - "Use AI to suggest better names for my vacation photos"
+- "Remove the numeric prefix from all tracks in C:/Music/Playlist" (variable-length prefix — SQL can't do this)
 
 ### query_external
 - "Run ffmpeg to convert all MP3 files to WAV"
@@ -119,3 +125,4 @@ graph TD;
 ### direct_answer
 - "Hello, how are you?"
 - "What can you help me with?"
+- "What time is it?"

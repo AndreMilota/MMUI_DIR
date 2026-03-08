@@ -99,20 +99,19 @@ MMUI_DIR/
     tools/
       __init__.py
       sql.py              # tiny helper for SQLite (db/files.db)
-  app_2/                  # NEW: Branching LangGraph workflow
+  app_2/                  # Branching LangGraph workflow
     __init__.py
     state.py              # GraphState, ExecutionPlan, ActionType enum
     graph.py              # Branching graph with conditional routing
-    nodes.py              # Classification + 9 processing nodes
-    runner.py             # Entry point: run_query()
-    path_guard.py         # Permission-based path access control
-    visualize_graph.py    # Generate Mermaid diagram of the workflow
+    nodes.py              # Classification + 9 processing nodes; modular prompt components
+    runner.py             # Entry point: run_query(user_input, now, db_path, file_system)
+    path_guard.py         # Permission-based path access control (PathGuard, TODO: integrate)
   file_scan/
     fs_reader.py          # FSReader ABC + RealFSReader (OS-level file iteration)
     fs_database.py        # SQLite-backed file tracking database
     fs_load.py            # scan_path_into_db() — ties reader + database together
     mock_file_system/
-      mock_files.py       # mock file system for testing
+      mock_files.py       # MockFiles: virtual filesystem for testing
       mock_fs_reader.py   # MockFSReader — FSReader adapter for MockFiles
       file_record_builder.py  # file record construction with defaults
       test_fs_reader_using_mocks.py  # end-to-end scan test using MockFSReader
@@ -122,18 +121,28 @@ MMUI_DIR/
     files.db              # created by db_smoketest.py
     memory/               # per-session JSON memory files
   scripts/
-    hello_langgraph.py        # LangGraph hello
-    test_groq.py              # Groq connectivity test
-    db_smoketest.py           # create/seed table
-    db_query.py               # read a few rows
-    print_tree.py             # prints & copies folder tree
-    simple_agent_tests.py     # MockFiles smoke test with directory listing
-    branching_agent_tests.py  # Tests for app_2 branching workflow
-    sql_escalation_test.py    # Tests for SQL vs LLM routing decisions
-    display_sorting_tests.py  # Tests for query_display sorting/grouping
-    clean_temp_files.py       # delete .tsv and .sqlite temp files
-  docs/
-    graph.md              # Mermaid diagram (generated)
+    print_tree.py             # prints & copies folder tree (standalone)
+    clean_temp_files.py       # delete .tsv and .sqlite temp files (standalone)
+    app/                      # Tests and scripts for app (original workflow)
+      simple_agent_tests.py   # MockFiles smoke test with directory listing
+      run_graph_once.py       # Run the linear graph once
+      db_query.py             # Read a few rows from the database
+    app_2/                    # Tests for app_2 branching workflow (one file per branch)
+      branching_agent_tests.py    # Coordinator — calls all per-branch test files
+      test_query_respond.py       # query_respond branch tests
+      test_query_display.py       # query_display branch tests
+      test_query_store.py         # query_store branch tests
+      test_query_transform.py     # query_transform branch tests (move/rename/delete)
+      test_query_copy.py          # query_copy branch tests (including sync copy)
+      test_query_feed_llm.py      # query_feed_llm branch tests (SQL escalation)
+      test_query_external.py      # query_external branch tests
+      test_web_search.py          # web_search branch tests
+      test_direct_answer.py       # direct_answer branch tests
+      visualize_graph.py          # Generate Mermaid diagram of the workflow
+    docs/
+      branching_graph.md      # Mermaid diagram + action type reference
+      graph.md                # Original graph diagram
+      path_guard.md           # PathGuard design notes
   CLAUDE.md               # Coding conventions for Claude Code sessions
   .gitignore
   requirements.txt
@@ -170,12 +179,21 @@ mock_fs.mount_volume(drive_letter='Z', label='USB')  # Creates Z:\
 mock_fs.mkdir("C:\\Users\\Bob\\Documents")      # Creates all parent dirs
 mock_fs.cd("C:\\Users\\Bob")                    # Change directory
 print(mock_fs.getcwd())                         # "C:\Users\Bob"
-mock_fs.ls_dir()                                # List subdirectories
+mock_fs.ls_dir()                                # List subdirectory names in cwd
 
 # Create files
 mock_fs.save("report.txt", size_bytes=1024)
 mock_fs.save("photo.jpg", size_bytes=2048000)
-mock_fs.ls()                                    # List files in cwd
+mock_fs.ls()                                    # List files in cwd (returns list of dicts)
+
+# Pretty-print a directory listing (returns formatted multi-line string)
+listing = mock_fs.dir("C:\\Users\\Bob")
+print(listing)
+# dir: C:\Users\Bob
+#   [Documents/]
+#   photo.jpg
+#   report.txt
+print(f"  ({len(listing.splitlines()) - 1} items)")  # count entries (subtract header line)
 ```
 
 ### File defaults (sticky parameters)
@@ -438,15 +456,17 @@ print(result['final_response'])  # Friendly greeting response
 
 ### Running the tests
 
+Each branch has its own test file that can be run standalone or via the coordinator:
+
 ```powershell
-# Run all branching agent tests
-python -m scripts.branching_agent_tests
+# Run all branch tests (coordinator)
+python -m scripts.app_2.branching_agent_tests
 
-# SQL escalation tests (verifies SQL vs LLM routing decisions)
-python -m scripts.sql_escalation_test
-
-# Display sorting/grouping tests
-python -m scripts.display_sorting_tests
+# Run a single branch's tests
+python -m scripts.app_2.test_query_display
+python -m scripts.app_2.test_query_copy
+python -m scripts.app_2.test_query_transform
+# etc.
 ```
 
 ### Key Files
@@ -454,9 +474,9 @@ python -m scripts.display_sorting_tests
 | File | Purpose |
 |------|---------|
 | `app_2/state.py` | `ActionType` enum, `ExecutionPlan` Pydantic model, `GraphState` TypedDict |
-| `app_2/nodes.py` | Classification node + all processing nodes |
+| `app_2/nodes.py` | Classification node + all processing nodes; modular prompt components |
 | `app_2/graph.py` | Graph construction with conditional routing |
-| `app_2/runner.py` | `run_query()` entry point |
+| `app_2/runner.py` | `run_query(user_input, now, db_path, file_system)` entry point |
 
 ### ExecutionPlan Model
 
@@ -481,10 +501,12 @@ For file operations (`query_transform`, `query_copy`), the SQL must return:
 
 | Field | Type | Purpose |
 |-------|------|---------|
-| `vfs` | MockFiles | Virtual filesystem instance for testing |
-| `use_real_fs` | bool | If True, use real FS (disabled until PathGuard ready) |
+| `file_system` | MockFiles (or real adapter) | Filesystem instance passed in from the caller |
+| `use_real_fs` | bool | Safety flag — always `False` until PathGuard is integrated |
 | `operation_results` | List[Dict] | Per-file success/failure results |
 | `operation_errors` | List[str] | Error messages from failed operations |
+
+The node detects whether the filesystem is real by checking `isinstance(file_system, MockFiles)`. If it is real and `use_real_fs` is `False`, the operation is blocked and an error is returned. This prevents accidental real-filesystem writes during testing.
 
 ---
 
@@ -610,9 +632,12 @@ The `CLAUDE.md` file in the project root documents coding patterns for AI-assist
   vfs.move(source, dest)  # <------- FILE OPERATION: move
   ```
 
-- **Modular prompt components**: LLM prompt guidance is stored in module-level variables (e.g., `SQL_ESCALATION_GUIDANCE`) for A/B testing and conditional inclusion.
+- **Modular prompt components**: LLM prompt guidance is stored in module-level variables for A/B testing, conditional inclusion, and future RAG retrieval. Current variables in `app_2/nodes.py`:
+  - `SQL_ESCALATION_GUIDANCE` — when SQL can handle a transform vs when to escalate to `query_feed_llm`
+  - `DEFAULT_SCOPE_GUIDANCE` — default to current directory only (no subdirs) unless user says otherwise; reusable across all query branches
+  - `QUERY_DISPLAY_GUIDANCE` — display formatting rules: human-readable timestamps, filename-only column when a single directory is pinned, separate path + filename columns when results span multiple directories
 
-- **Virtual filesystem testing**: File operations use MockFiles for testing with explicit checks to prevent accidental real filesystem access.
+- **Virtual filesystem testing**: File operations use `MockFiles` for testing with explicit checks to prevent accidental real filesystem access. Pass the `MockFiles` instance via the `file_system` parameter of `run_query()`.
 
 ---
 
