@@ -155,7 +155,7 @@ def test_query_respond() -> None:
     # Test 1: Count query
     result = run_test(
         "Count MP3 files",
-        "How many MP3 files do I have?",
+        "How many MP3 files do I have?",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_respond"
     )
@@ -168,7 +168,7 @@ def test_query_respond() -> None:
     # Test 2: Sum/aggregate query - total duration of ALL music files
     result = run_test(
         "Total music duration",
-        "How many minutes of music do I have in total?",
+        "How many minutes of music do I have in total?",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_respond"
     )
@@ -176,7 +176,7 @@ def test_query_respond() -> None:
     # Test 3: Yes/No question
     run_test(
         "Yes/No question",
-        "Do I have any files older than a month?",
+        "Do I have any files older than a month?",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_respond"
     )

@@ -156,7 +156,7 @@ def test_web_search():
     # Use a question that clearly requires current web information
     run_test(
         "Web search - current info needed",
-        "What is the current price of the latest Beatles vinyl reissue on Amazon?",
+        "What is the current price of the latest Beatles vinyl reissue on Amazon?",  # <-----------------------------------------
         db_path, NOW,
         expected_action="web_search"
     )

@@ -236,7 +236,7 @@ def test_query_feed_llm():
 
     run_test(
         "AI rename files",
-        "Use AI to suggest better names for my vacation photos based on their metadata",
+        "Use AI to suggest better names for my vacation photos based on their metadata",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_feed_llm"
     )
@@ -268,7 +268,7 @@ def test_variable_numeric_prefix_removal():
 
     run_test(
         "Remove track numbers from MP3 filenames",
-        "Rename all MP3 files in C:/Music/Playlist by removing the leading track numbers (like 01_, 02_, 123_) from the beginning of each filename",
+        "Rename all MP3 files in C:/Music/Playlist by removing the leading track numbers (like 01_, 02_, 123_) from the beginning of each filename",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_feed_llm"
     )
@@ -293,7 +293,7 @@ def test_camelcase_to_snakecase():
 
     run_test(
         "Convert CamelCase to snake_case",
-        "Rename all Python files in C:/Code/Classes by converting their CamelCase names to snake_case (e.g., UserAccountManager.py becomes user_account_manager.py)",
+        "Rename all Python files in C:/Code/Classes by converting their CamelCase names to snake_case (e.g., UserAccountManager.py becomes user_account_manager.py)",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_feed_llm"
     )
@@ -318,7 +318,7 @@ def test_remove_copy_suffixes():
 
     run_test(
         "Remove copy suffixes from duplicate files",
-        "Rename files in C:/Documents/Duplicates by removing the copy indicators like (1), (2), (copy) from their names",
+        "Rename files in C:/Documents/Duplicates by removing the copy indicators like (1), (2), (copy) from their names",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_feed_llm"
     )
@@ -342,7 +342,7 @@ def test_semantic_ai_renaming():
 
     run_test(
         "AI-based photo renaming",
-        "Rename all the photos in C:/Photos/Vacation to have more descriptive names based on when they were taken and any available metadata",
+        "Rename all the photos in C:/Photos/Vacation to have more descriptive names based on when they were taken and any available metadata",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_feed_llm"
     )
@@ -368,7 +368,7 @@ def test_pattern_based_extraction():
 
     run_test(
         "Restructure camera filenames keeping sequence numbers",
-        "Rename photos in C:/Photos/Vacation by changing IMG_XXXX.jpg and DSC_XXXX.jpg to vacation_XXXX.jpg, keeping the original sequence numbers",
+        "Rename photos in C:/Photos/Vacation by changing IMG_XXXX.jpg and DSC_XXXX.jpg to vacation_XXXX.jpg, keeping the original sequence numbers",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_feed_llm"
     )
@@ -393,7 +393,7 @@ def test_conditional_renaming():
 
     run_test(
         "Conditional prefix based on file type",
-        "Rename files in C:/Projects/Archive: if the filename starts with 'archive_', remove it; if it starts with 'old_', replace it with 'legacy_'; otherwise add 'misc_' prefix",
+        "Rename files in C:/Projects/Archive: if the filename starts with 'archive_', remove it; if it starts with 'old_', replace it with 'legacy_'; otherwise add 'misc_' prefix",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_feed_llm"
     )
@@ -422,7 +422,7 @@ def test_metadata_from_filename():
 
     result = run_test(
         "Fix metadata from filename",
-        "In C:/Music/Playlist, see if you can fix the metadata from the file name and vice versa",
+        "In C:/Music/Playlist, see if you can fix the metadata from the file name and vice versa",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_feed_llm"
     )

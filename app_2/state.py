@@ -77,9 +77,9 @@ class GraphState(TypedDict, total=False):
     # Database
     db_path: Optional[str]                       # Path to SQLite database
 
-    # Virtual Filesystem (for testing file operations)
+    # Filesystem (MockFiles for testing, or real filesystem adapter in production)
     # TODO: Integrate PathGuard before enabling real filesystem operations
-    vfs: Optional[Any]                           # MockFiles instance for virtual filesystem
+    file_system: Optional[Any]                   # Filesystem instance (MockFiles or real adapter)
     use_real_fs: bool                            # If True, use real filesystem (DANGEROUS - requires PathGuard)
 
     # Classification output

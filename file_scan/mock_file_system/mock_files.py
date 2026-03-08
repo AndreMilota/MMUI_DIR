@@ -807,6 +807,97 @@ class MockFiles:
 
         return subdirs
 
+    def dir(self, path: str = None) -> str:
+        """
+        List all files and subdirectories in the given directory.
+
+        Builds a formatted string showing the directory path on the first line,
+        followed by one entry per line (subdirectories marked with trailing /,
+        files listed by name). Does not print — the caller is responsible for
+        printing.
+
+        Args:
+            path: Directory to list (can be relative or absolute). Defaults to cwd.
+
+        Returns:
+            str: Multi-line string. First line is the header ("dir: <path>").
+                 Subsequent lines are one entry each (dirs then files).
+                 Counting lines[1:] gives total item count; files are the
+                 non-directory entries.
+
+        Example:
+            listing = fs.dir("C:/Backup/Images")
+            print(listing)
+            print(f"  ({len(listing.splitlines()) - 1} items)")
+        """
+        if path is None:
+            target = self.cwd
+        else:
+            target = self._normalize_path(path)
+
+        volume_id = self._get_volume_id_for_path(target)
+        if volume_id is None:
+            return f"dir: {target}\n  (volume not mounted)"
+
+        target_db = target.replace('\\', '/')
+        if not target_db.endswith('/'):
+            prefix = target_db + '/'
+        else:
+            prefix = target_db
+
+        cursor = self.db.conn.cursor()
+
+        # Check if directory exists (or is a root)
+        is_root = len(target) == 3 and target[1] == ':' and target[2] == '\\'
+        if not is_root:
+            cursor.execute("""
+                SELECT id FROM directories
+                WHERE volume_id = ? AND dir_path = ?
+            """, (volume_id, target_db))
+            if cursor.fetchone() is None:
+                return f"dir: {target}\n  (directory not found)"
+
+        # Get immediate subdirectories
+        cursor.execute("""
+            SELECT dir_path FROM directories
+            WHERE volume_id = ?
+              AND dir_path LIKE ?
+              AND dir_path NOT LIKE ?
+            ORDER BY dir_path
+        """, (volume_id, prefix + '%', prefix + '%/%'))
+        subdirs = [row['dir_path'].split('/')[-1] for row in cursor.fetchall()]
+
+        # Get files in this directory
+        cursor.execute("""
+            SELECT id FROM directories
+            WHERE volume_id = ? AND dir_path = ?
+        """, (volume_id, target_db))
+        dir_row = cursor.fetchone()
+
+        files = []
+        if dir_row:
+            cursor.execute("""
+                SELECT name, extension FROM files
+                WHERE directory_id = ?
+                ORDER BY name, extension
+            """, (dir_row['id'],))
+            for row in cursor.fetchall():
+                if row['extension']:
+                    files.append(f"{row['name']}.{row['extension']}")
+                else:
+                    files.append(row['name'])
+
+        # Build result string (header + one entry per line)
+        lines = [f"dir: {target}"]
+        for d in subdirs:
+            lines.append(f"  [{d}/]")
+        for f in files:
+            lines.append(f"  {f}")
+        if not subdirs and not files:
+            lines.append("  (empty)")
+
+        return "\n".join(lines)
+
     # =========================================================================
     # Helper Methods
     # =========================================================================

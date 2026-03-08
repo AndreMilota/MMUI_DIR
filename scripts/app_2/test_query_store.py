@@ -156,7 +156,7 @@ def test_query_store():
     # Test 1: Store for later reference
     result = run_test(
         "Store files for later",
-        "Remember the MP3 files in my Beatles folder",
+        "Remember the MP3 files in my Beatles folder",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_store"
     )
@@ -167,7 +167,7 @@ def test_query_store():
     # Test 2: Store simple file list with directory info
     result = run_test(
         "Store file list with paths",
-        "Note down all the files in C:/Music along with their directories",
+        "Note down all the files in C:/Music along with their directories",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_store"
     )
@@ -177,7 +177,7 @@ def test_query_store():
     # Test 3: Store files with specific columns (name+extension, artist)
     result = run_test(
         "Store files with artist info",
-        "Remember all music files showing filename and artist for each",
+        "Remember all music files showing filename and artist for each",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_store"
     )

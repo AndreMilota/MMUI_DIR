@@ -287,7 +287,7 @@ def test_query_display():
     # Test: Show files
     run_test(
         "Show files in directory",
-        "Show me all the files in C:/Music/Beatles",
+        "Show me all the files in C:/Music/Beatles",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_display"
     )
@@ -295,7 +295,7 @@ def test_query_display():
     # Test: List with criteria
     run_test(
         "List files with criteria",
-        "List all text files I have",
+        "List all text files I have",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_display"
     )
@@ -317,7 +317,7 @@ def test_display_with_dates():
 
     result = run_test(
         "Show files with creation dates",
-        "Show me all the text files with their creation dates",
+        "Show me all the text files with their creation dates",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_display"
     )
@@ -345,7 +345,7 @@ def test_display_with_size():
 
     result = run_test(
         "Show files with sizes",
-        "List all files in C:/Pictures/Photos showing their file sizes",
+        "List all files in C:/Pictures/Photos showing their file sizes",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_display"
     )
@@ -376,7 +376,7 @@ def test_sort_by_date_ascending():
 
     result = run_test(
         "Sort by date oldest first",
-        "Show me all files in C:/Documents/Reports sorted by creation date, oldest first",
+        "Show me all files in C:/Documents/Reports sorted by creation date, oldest first",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_display"
     )
@@ -401,7 +401,7 @@ def test_sort_by_size_descending():
 
     result = run_test(
         "Sort by size largest first",
-        "List all JPG files sorted by size with the largest files first",
+        "List all JPG files sorted by size with the largest files first",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_display"
     )
@@ -428,7 +428,7 @@ def test_sort_by_name_alphabetical():
 
     result = run_test(
         "Sort alphabetically by name",
-        "List all MP3 files sorted alphabetically by filename",
+        "List all MP3 files sorted alphabetically by filename",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_display"
     )
@@ -455,7 +455,7 @@ def test_sort_by_extension_then_name():
 
     result = run_test(
         "Sort by type then name",
-        "Show all files in C:/Downloads sorted by file type, then alphabetically by name within each type",
+        "Show all files in C:/Downloads sorted by file type, then alphabetically by name within each type",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_display"
     )
@@ -485,7 +485,7 @@ def test_group_by_directory():
 
     result = run_test(
         "Group by directory",
-        "Show me all files grouped by their directory",
+        "Show me all files grouped by their directory",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_display"
     )
@@ -517,7 +517,7 @@ def test_group_by_directory_sort_by_date():
 
     result = run_test(
         "Group by directory, sort by date within groups",
-        "Show all files grouped by directory, and within each directory sort them by creation date",
+        "Show all files grouped by directory, and within each directory sort them by creation date",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_display"
     )

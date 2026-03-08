@@ -14,7 +14,8 @@ from app.utils.clipboard import print_copy
 def run_query(
     user_input: str,
     now: Optional[str] = None,
-    db_path: Optional[str] = None
+    db_path: Optional[str] = None,
+    file_system: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """
     Run a natural language query through the branching workflow.
@@ -59,6 +60,9 @@ def run_query(
     }
     if db_path is not None:
         state_in["db_path"] = db_path
+    if file_system is not None:
+        state_in["file_system"] = file_system
+    state_in["use_real_fs"] = False  # Never True until PathGuard is integrated
 
     # Print user request to clipboard for accessibility
     print_copy(f"User request: {user_input}")

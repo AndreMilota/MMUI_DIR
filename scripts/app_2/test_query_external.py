@@ -154,7 +154,7 @@ def test_query_external():
 
     run_test(
         "Run external app",
-        "Run ffmpeg to convert all my MP3 files to WAV format",
+        "Run ffmpeg to convert all my MP3 files to WAV format",  # <-----------------------------------------
         db_path, NOW,
         expected_action="query_external"
     )

@@ -45,7 +45,7 @@ def get_fresh_database(name: str = "test_db") -> FSDatabase:
     return db
 
 
-def run_test(label: str, query: str, db_path: str, now: str, expected_action: str = None):
+def run_test(label: str, query: str, db_path: str, now: str, expected_action: str = None, file_system=None):
     """Run a test query and print results."""
     print(f"\n{'='*70}")
     print(f"TEST: {label}")
@@ -53,7 +53,7 @@ def run_test(label: str, query: str, db_path: str, now: str, expected_action: st
     print(f"EXPECTED ACTION: {expected_action or 'any'}")
     print(f"{'='*70}")
 
-    result = run_query(query, now=now, db_path=db_path)
+    result = run_query(query, now=now, db_path=db_path, file_system=file_system)
 
     print(f"\nACTION TYPE: {result['action_type']}")
     print(f"REASONING: {result['reasoning']}")
@@ -240,23 +240,25 @@ def test_query_transform():
     print("TESTING: query_transform (move/rename/delete)")
     print("="*70)
 
-    _, _, db_path = setup_test_filesystem("transform")
+    fs, _, db_path = setup_test_filesystem("transform")
     NOW = "2026-02-15 12:00:00"
 
     # Test: Delete files
     run_test(
         "Delete temp files",
-        "Delete all the .tmp files in C:/Downloads/Temp",
+        "Delete all the .tmp files in C:/Downloads/Temp",  # <-----------------------------------------
         db_path, NOW,
-        expected_action="query_transform"
+        expected_action="query_transform",
+        file_system=fs
     )
 
     # Test: Move files
     run_test(
         "Move files",
-        "Move all files from C:/Downloads/Temp to C:/Archive",
+        "Move all files from C:/Downloads/Temp to C:/Archive",  # <-----------------------------------------
         db_path, NOW,
-        expected_action="query_transform"
+        expected_action="query_transform",
+        file_system=fs
     )
 
 
@@ -280,14 +282,15 @@ def test_simple_move_to_directory():
     print("TEST CATEGORY: SQL-CAPABLE - Simple directory move")
     print("="*70)
 
-    _, _, db_path = setup_escalation_filesystem("simple_move")
+    fs, _, db_path = setup_escalation_filesystem("simple_move")
     NOW = "2026-02-15 12:00:00"
 
     run_test(
         "Move PDFs to another directory",
-        "Move all PDF files from C:/Downloads/Unsorted to C:/Downloads/Sorted",
+        "Move all PDF files from C:/Downloads/Unsorted to C:/Downloads/Sorted",  # <-----------------------------------------
         db_path, NOW,
-        expected_action="query_transform"
+        expected_action="query_transform",
+        file_system=fs
     )
 
 
@@ -303,14 +306,15 @@ def test_delete_files():
     print("TEST CATEGORY: SQL-CAPABLE - Delete files")
     print("="*70)
 
-    _, _, db_path = setup_escalation_filesystem("delete")
+    fs, _, db_path = setup_escalation_filesystem("delete")
     NOW = "2026-02-15 12:00:00"
 
     run_test(
         "Delete old archive files",
-        "Delete all the .txt files in C:/Projects/Archive",
+        "Delete all the .txt files in C:/Projects/Archive",  # <-----------------------------------------
         db_path, NOW,
-        expected_action="query_transform"
+        expected_action="query_transform",
+        file_system=fs
     )
 
 
@@ -327,14 +331,15 @@ def test_fixed_prefix_removal():
     print("TEST CATEGORY: SQL-CAPABLE - Fixed prefix removal")
     print("="*70)
 
-    _, _, db_path = setup_escalation_filesystem("fixed_prefix")
+    fs, _, db_path = setup_escalation_filesystem("fixed_prefix")
     NOW = "2026-02-15 12:00:00"
 
     run_test(
         "Remove 'archive_' prefix from filenames",
-        "Rename all files in C:/Projects/Archive by removing the 'archive_' prefix from their names",
+        "Rename all files in C:/Projects/Archive by removing the 'archive_' prefix from their names",  # <-----------------------------------------
         db_path, NOW,
-        expected_action="query_transform"
+        expected_action="query_transform",
+        file_system=fs
     )
 
 

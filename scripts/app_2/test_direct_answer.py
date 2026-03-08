@@ -48,7 +48,7 @@ def run_test(label: str, query: str, db_path: str, now: str, expected_action: st
     print(f"EXPECTED ACTION: {expected_action or 'any'}")
     print(f"{'='*70}")
 
-    result = run_query(query, now=now, db_path=db_path)
+    result = run_query(query, now=now, db_path=db_path) # <-------------------
 
     print(f"\nACTION TYPE: {result['action_type']}")
     print(f"REASONING: {result['reasoning']}")
@@ -153,10 +153,18 @@ def test_direct_answer():
     _, _, db_path = setup_test_filesystem("direct")
     NOW = "2026-02-15 12:00:00"
 
+    # Test: Time question
+    run_test(
+        "What time is it",
+        "What time is it?",  # <-----------------------------------------
+        db_path, NOW,
+        expected_action="direct_answer"
+    )
+
     # Test: Greeting
     run_test(
         "Greeting",
-        "Hello, how are you today?",
+        "Hello, how are you today?",  # <-----------------------------------------
         db_path, NOW,
         expected_action="direct_answer"
     )
@@ -164,10 +172,11 @@ def test_direct_answer():
     # Test: General question
     run_test(
         "General question",
-        "What can you help me with?",
+        "What can you help me with?",  # <-----------------------------------------
         db_path, NOW,
         expected_action="direct_answer"
     )
+
 
 
 # ===========================================================================

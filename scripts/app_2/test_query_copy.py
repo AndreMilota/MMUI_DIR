@@ -44,7 +44,7 @@ def get_fresh_database(name: str = "test_db") -> FSDatabase:
     return db
 
 
-def run_test(label: str, query: str, db_path: str, now: str, expected_action: str = None):
+def run_test(label: str, query: str, db_path: str, now: str, expected_action: str = None, file_system=None):
     """Run a test query and print results."""
     print(f"\n{'='*70}")
     print(f"TEST: {label}")
@@ -52,7 +52,7 @@ def run_test(label: str, query: str, db_path: str, now: str, expected_action: st
     print(f"EXPECTED ACTION: {expected_action or 'any'}")
     print(f"{'='*70}")
 
-    result = run_query(query, now=now, db_path=db_path)
+    result = run_query(query, now=now, db_path=db_path, file_system=file_system)
 
     print(f"\nACTION TYPE: {result['action_type']}")
     print(f"REASONING: {result['reasoning']}")
@@ -138,6 +138,9 @@ def setup_test_filesystem(test_name: str = "default"):
     fs.save("temp_data.tmp", size_bytes=1024)
     fs.save("cache_file.tmp", size_bytes=2048)
 
+    # Destination folder for copy tests
+    fs.mkdir("C:/Backup/Photos")
+
     db = get_fresh_database(f"branching_db_{test_name}")
     reader = MockFSReader(fs)
     scan_path_into_db(root_path="C:/", db=db, reader=reader)
@@ -176,6 +179,36 @@ def setup_escalation_filesystem(test_name: str = "escalation"):
     fs.save("file2.pdf", size_bytes=204800)
     fs.save("image.jpg", size_bytes=1024000)
 
+    # Destination folder for copy tests
+    fs.mkdir("C:/Backup/Images")
+
+    # Second batch of source files: PNG exports (used by second copy in test_simple_copy)
+    fs.mkdir("C:/Documents/Exports")
+    fs.cd("C:/Documents/Exports")
+    fs.set_time("2026-02-15 00:00:00")
+    fs.save("chart_q1.png", size_bytes=512000)
+    fs.save("chart_q2.png", size_bytes=487000)
+    fs.save("chart_q3.png", size_bytes=531000)
+
+    # Sync test: Camera has 5 photos, Backup already has 2 of them.
+    # Goal: copy only the 3 missing ones.
+    fs.mkdir("C:/Photos/Camera")
+    fs.cd("C:/Photos/Camera")
+    fs.set_time("2026-03-01 00:00:00")
+    fs.save("photo_001.jpg", size_bytes=3000000)
+    fs.save("photo_002.jpg", size_bytes=3100000)
+    fs.save("photo_003.jpg", size_bytes=2900000)
+    fs.save("photo_004.jpg", size_bytes=3200000)
+    fs.save("photo_005.jpg", size_bytes=2800000)
+
+    # Pre-populate Backup with 2 files that already exist in Camera.
+    # The sync query should skip these and only copy the remaining 3.
+    fs.mkdir("C:/Photos/Backup")
+    fs.cd("C:/Photos/Backup")
+    fs.set_time("2026-02-01 00:00:00")   # older timestamp — already synced previously
+    fs.save("photo_001.jpg", size_bytes=3000000)
+    fs.save("photo_003.jpg", size_bytes=2900000)
+
     db = get_fresh_database(f"escalation_db_{test_name}")
     reader = MockFSReader(fs)
     scan_path_into_db(root_path="C:/", db=db, reader=reader)
@@ -194,14 +227,15 @@ def test_query_copy():
     print("TESTING: query_copy (copy operations)")
     print("="*70)
 
-    _, _, db_path = setup_test_filesystem("copy")
+    fs, _, db_path = setup_test_filesystem("copy")
     NOW = "2026-02-15 12:00:00"
 
     run_test(
         "Copy files",
-        "Copy all jpg files from C:/Pictures/Vacation to C:/Backup/Photos",
+        "Copy all jpg files from C:/Pictures/Vacation to C:/Backup/Photos",  # <-----------------------------------------
         db_path, NOW,
-        expected_action="query_copy"
+        expected_action="query_copy",
+        file_system=fs
     )
 
 
@@ -214,25 +248,93 @@ def test_query_copy():
 
 def test_simple_copy():
     """
-    Test: Copy files to a new directory.
+    Test: Copy files to a new directory, in two separate batches.
 
     SQL CAN handle this: Same as move, just construct new dest_path.
 
     Expected: query_copy (pure SQL can generate both columns)
+
+    Batch 1: Copy 3 JPG files from C:/Downloads/Unsorted -> C:/Backup/Images
+    Batch 2: Copy 3 PNG files from C:/Documents/Exports  -> C:/Backup/Images
     """
     print("\n" + "="*70)
-    print("TEST CATEGORY: SQL-CAPABLE - Simple copy")
+    print("TEST CATEGORY: SQL-CAPABLE - Simple copy (two batches)")
     print("="*70)
 
-    _, _, db_path = setup_escalation_filesystem("simple_copy")
+    fs, _, db_path = setup_escalation_filesystem("simple_copy")
     NOW = "2026-02-15 12:00:00"
 
+    # --- Batch 1: copy JPGs ---
     run_test(
         "Copy JPGs to backup",
-        "Copy all JPG files from C:/Downloads/Unsorted to C:/Backup/Images",
+        "Copy all JPG files from C:/Downloads/Unsorted to C:/Backup/Images",  # <-----------------------------------------
         db_path, NOW,
-        expected_action="query_copy"
+        expected_action="query_copy",
+        file_system=fs
     )
+    listing = fs.dir("C:/Backup/Images")
+    print(listing)
+    count = len(listing.splitlines()) - 1
+    print(f"  ({count} files)")
+    assert (count == 3)
+
+    # --- Batch 2: copy PNGs ---
+    run_test(
+        "Copy PNGs to backup",
+        "Copy all PNG files from C:/Documents/Exports to C:/Backup/Images",  # <-----------------------------------------
+        db_path, NOW,
+        expected_action="query_copy",
+        file_system=fs
+    )
+    listing = fs.dir("C:/Backup/Images")
+    print(listing)
+    count = len(listing.splitlines()) - 1
+    print(f"  ({count} files)")
+    assert (count == 6)
+
+def test_sync_copy():
+    """
+    Test: Copy only the files that are new in the source (one-way sync).
+
+    C:/Photos/Camera has 5 JPGs.
+    C:/Photos/Backup already has 2 of them (photo_001, photo_003).
+    Goal: copy only the 3 missing ones — do NOT overwrite existing files.
+
+    SQL CAN handle this: use a NOT EXISTS subquery to filter out filenames
+    that already appear in the destination directory.
+
+    Expected: query_copy (SQL can determine which files are missing)
+    """
+    print("\n" + "="*70)
+    print("TEST CATEGORY: SQL-CAPABLE - Sync copy (new files only)")
+    print("="*70)
+
+    fs, _, db_path = setup_escalation_filesystem("sync_copy")
+    NOW = "2026-03-07 12:00:00"
+
+    # Show the starting state of the destination
+    print("\n  -- before sync --")
+    listing = fs.dir("C:/Photos/Backup")
+    print(listing)
+    count = len(listing.splitlines()) - 1
+    print(f"  ({count} files already in backup)")
+    assert count == 2
+
+    run_test(
+        "Sync Camera to Backup - new files only",
+        "Update C:/Photos/Backup so it has all the files from C:/Photos/Camera - only copy files that are not already in the destination",  # <-----------------------------------------
+        db_path, NOW,
+        expected_action="query_copy",
+        file_system=fs
+    )
+
+    # Show the final state — should now have all 5 files
+    print("\n  -- after sync --")
+    listing = fs.dir("C:/Photos/Backup")
+    print(listing)
+    count = len(listing.splitlines()) - 1
+    print(f"  ({count} files in backup)")
+    assert count == 5
 
 
 # ===========================================================================
@@ -247,6 +349,7 @@ def test_all_copy():
 
     test_query_copy()
     test_simple_copy()
+    test_sync_copy()
 
     print("\n" + "#"*70)
     print("# query_copy TESTS COMPLETED")

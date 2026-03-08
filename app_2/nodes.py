@@ -24,6 +24,7 @@ from app_2.state import GraphState, ExecutionPlan, ActionType
 from app.llm.core import chat, chat_json, extract_json_block
 from app.utils.clipboard import print_copy
 from file_scan.fs_database import LLM_DB_SCHEMA_DOC
+from file_scan.mock_file_system.mock_files import MockFiles
 
 
 # -----------------------------------------------------------------------------
@@ -446,14 +447,14 @@ def query_and_transform(state: GraphState) -> GraphState:
     Expects SQL to return source_path and dest_path columns.
     If dest_path is NULL, the file will be deleted.
 
-    Uses virtual filesystem (vfs) for operations when available.
+    Uses file_system (MockFiles or real adapter) for operations when available.
     TODO: Integrate PathGuard before enabling real filesystem operations.
     """
     results = state.get("query_result", [])
     error = state.get("query_error")
     user_input = state.get("user_input", "")
     plan = state.get("execution_plan")
-    vfs = state.get("vfs")
+    file_system = state.get("file_system")
     use_real_fs = state.get("use_real_fs", False)
 
     print(f"\n[NODE: query_and_transform]")
@@ -468,12 +469,14 @@ def query_and_transform(state: GraphState) -> GraphState:
         state["final_response"] = "No files found matching your criteria for transformation."
         return state
 
-    # SAFETY CHECK: Never use real filesystem without explicit flag AND PathGuard
+    # SAFETY CHECK: If file_system is not a MockFiles instance it is a real filesystem.
+    # Real filesystem operations require use_real_fs=True AND PathGuard (not yet integrated).
     # TODO: Add PathGuard validation here before production use
-    if use_real_fs:
-        print("ERROR: Real filesystem operations not yet implemented. Requires PathGuard.")
+    is_real_fs = file_system is not None and not isinstance(file_system, MockFiles)
+    if is_real_fs and not use_real_fs:
+        print("ERROR: Real filesystem detected but use_real_fs=False. Requires PathGuard.")
         state["final_response"] = "Real filesystem operations are disabled for safety."
-        state["operation_errors"] = ["Real filesystem operations require PathGuard integration"]
+        state["operation_errors"] = ["Real filesystem requires use_real_fs=True and PathGuard integration"]
         return state
 
     # Print planned operations
@@ -497,9 +500,9 @@ def query_and_transform(state: GraphState) -> GraphState:
         if dest is None:
             # DELETE operation
             delete_count += 1
-            if vfs:
+            if file_system:
                 try:
-                    result = vfs.delete(source)  # <------- FILE OPERATION: delete
+                    result = file_system.delete(source)  # <------- FILE OPERATION: delete
                     if result:
                         status = "DELETED"
                         op_result["success"] = True
@@ -519,16 +522,16 @@ def query_and_transform(state: GraphState) -> GraphState:
         else:
             # MOVE/RENAME operation
             move_count += 1
-            if vfs:
+            if file_system:
                 try:
                     # Check if destination directory exists
                     dest_dir = "/".join(dest.replace("\\", "/").split("/")[:-1])
-                    if not vfs.exists(dest_dir):
+                    if not file_system.exists(dest_dir):
                         status = "DIR MISSING"
                         op_result["error"] = f"Destination directory does not exist: {dest_dir}"
                         operation_errors.append(f"Move failed - directory missing: {dest_dir}")
                     else:
-                        file_id = vfs.move(source, dest)  # <------- FILE OPERATION: move
+                        file_id = file_system.move(source, dest)  # <------- FILE OPERATION: move
                         if file_id:
                             status = "MOVED"
                             op_result["success"] = True
@@ -551,7 +554,7 @@ def query_and_transform(state: GraphState) -> GraphState:
 
     print("-" * 80)
     print(f"Total: {len(results)} files ({delete_count} deletes, {move_count} moves/renames)")
-    if vfs:
+    if file_system:
         print(f"Completed: {success_count} successful, {len(operation_errors)} errors")
     else:
         print("[NO VFS: Operations not executed]")
@@ -559,7 +562,7 @@ def query_and_transform(state: GraphState) -> GraphState:
     state["operation_results"] = operation_results
     state["operation_errors"] = operation_errors if operation_errors else None
 
-    if vfs:
+    if file_system:
         state["final_response"] = f"Processed {len(results)} files: {success_count} successful, {len(operation_errors)} errors."
     else:
         state["final_response"] = f"Would process {len(results)} files: {delete_count} deletions, {move_count} moves/renames. (No VFS - operations skipped)"
@@ -577,14 +580,14 @@ def query_and_copy(state: GraphState) -> GraphState:
 
     Expects SQL to return source_path and dest_path columns.
 
-    Uses virtual filesystem (vfs) for operations when available.
+    Uses file_system (MockFiles or real adapter) for operations when available.
     TODO: Integrate PathGuard before enabling real filesystem operations.
     """
     results = state.get("query_result", [])
     error = state.get("query_error")
     user_input = state.get("user_input", "")
     plan = state.get("execution_plan")
-    vfs = state.get("vfs")
+    file_system = state.get("file_system")
     use_real_fs = state.get("use_real_fs", False)
 
     print(f"\n[NODE: query_and_copy]")
@@ -599,12 +602,14 @@ def query_and_copy(state: GraphState) -> GraphState:
         state["final_response"] = "No files found matching your criteria for copying."
         return state
 
-    # SAFETY CHECK: Never use real filesystem without explicit flag AND PathGuard
+    # SAFETY CHECK: If file_system is not a MockFiles instance it is a real filesystem.
+    # Real filesystem operations require use_real_fs=True AND PathGuard (not yet integrated).
     # TODO: Add PathGuard validation here before production use
-    if use_real_fs:
-        print("ERROR: Real filesystem operations not yet implemented. Requires PathGuard.")
+    is_real_fs = file_system is not None and not isinstance(file_system, MockFiles)
+    if is_real_fs and not use_real_fs:
+        print("ERROR: Real filesystem detected but use_real_fs=False. Requires PathGuard.")
         state["final_response"] = "Real filesystem operations are disabled for safety."
-        state["operation_errors"] = ["Real filesystem operations require PathGuard integration"]
+        state["operation_errors"] = ["Real filesystem requires use_real_fs=True and PathGuard integration"]
         return state
 
     # Print planned operations
@@ -623,20 +628,20 @@ def query_and_copy(state: GraphState) -> GraphState:
         status = "PENDING"
         op_result = {"source": source, "dest": dest, "success": False, "error": None}
 
-        if vfs:
+        if file_system:
             try:
                 # Check if destination directory exists
                 dest_dir = "/".join(dest.replace("\\", "/").split("/")[:-1])
-                if not vfs.exists(dest_dir):
+                if not file_system.exists(dest_dir):
                     status = "DIR MISSING"
                     op_result["error"] = f"Destination directory does not exist: {dest_dir}"
                     operation_errors.append(f"Copy failed - directory missing: {dest_dir}")
-                elif not vfs.exists(source):
+                elif not file_system.exists(source):
                     status = "NOT FOUND"
                     op_result["error"] = f"Source file does not exist: {source}"
                     operation_errors.append(f"Copy failed - source not found: {source}")
                 else:
-                    file_id = vfs.copy(source, dest)  # <------- FILE OPERATION: copy
+                    file_id = file_system.copy(source, dest)  # <------- FILE OPERATION: copy
                     if file_id:
                         status = "COPIED"
                         op_result["success"] = True
@@ -658,7 +663,7 @@ def query_and_copy(state: GraphState) -> GraphState:
 
     print("-" * 80)
     print(f"Total: {len(results)} files to copy")
-    if vfs:
+    if file_system:
         print(f"Completed: {success_count} successful, {len(operation_errors)} errors")
     else:
         print("[NO VFS: Operations not executed]")
@@ -666,7 +671,7 @@ def query_and_copy(state: GraphState) -> GraphState:
     state["operation_results"] = operation_results
     state["operation_errors"] = operation_errors if operation_errors else None
 
-    if vfs:
+    if file_system:
         state["final_response"] = f"Copied {success_count} of {len(results)} files. {len(operation_errors)} errors."
     else:
         state["final_response"] = f"Would copy {len(results)} files. (No VFS - operations skipped)"
