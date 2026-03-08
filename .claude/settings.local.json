@@ -4,7 +4,9 @@
       "Bash(python fs_load.py:*)",
       "Bash(python:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(grep:*)",
+      "Bash(cd C:\\\\Users\\\\Andre Milota\\\\PycharmProjects\\\\MMUI_DIR:*)"
     ]
   }
 }

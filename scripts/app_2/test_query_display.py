@@ -292,6 +292,15 @@ def test_query_display():
         expected_action="query_display"
     )
 
+    # Test: Show files
+    run_test(
+        "Show files in directory",
+        "list all the files in C:/Music/Beatles",  # <-----------------------------------------
+        db_path, NOW,
+        expected_action="query_display"
+    )
+
+
     # Test: List with criteria
     run_test(
         "List files with criteria",
