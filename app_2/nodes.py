@@ -391,6 +391,12 @@ Respond with a JSON object matching this schema:
     "external_app": "app name if action_type is query_external, else null",
     "reasoning": "brief explanation of classification"
 }}
+
+IMPORTANT JSON FORMATTING:
+- Return ONLY the JSON object — no prose, no markdown, no code fences.
+- Every field value must be on a single line. Do NOT include literal newlines
+  inside any string value. Write SQL as a single line or use spaces between
+  clauses (SELECT ... FROM ... WHERE ...) — never break it across lines.
 """
 
     user_prompt = f"Classify this request and generate an execution plan: {user_input}"
