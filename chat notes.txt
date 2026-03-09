@@ -41,3 +41,56 @@ Generate a set of tests where we can look at each of these branching things to s
 Use the same structure that we have APP. Though if gets too big Maybe there should be a file for the actual nodes.
 I’ve talked clawed in a separate session and I’m going to paste in also the thing it said about the architecture
 Let me know if you have any questions before you begin. Please note this was created using speech recognition and there may be errors in this prompt For some reason the speech recognizer seems to be dropping words today.
+
+
+3/9/2026
+I want to be able to swap out mock files for some kind of real file system. I’d like you to create a base class that mock FilesInherits from. I want you to create a class called RealFiles This should have all of the functions that mock files has.
+
+1)	I need you to create a class that I can use in place of MockFiles this class will be called RealFiles
+2)	It should go in file_scan.
+3)	It needs to have All the functions MockFiles  has
+4)	I would like to use strong typing and checking so you need to :
+a.	Create a base class in file_scan called BaseFiles That prototypes all of functions.
+b.	And you need to inherit from that in both MockFiles and RealFiles
+c.	Another chat with you recommends: from abc import ABC, abstractmethod
+5)	RealFiles should also have a flag that if not set to true will cause an error if one attempts to do operation that modifies actual files. This is an added safety element and it should be set by default to false by default
+6)	Go through and modify the places where MockFiles Are currently used so that When it is passed, we pass the base class. Do not change it to RealFiles
+7)	Safety
+a.	Move path_guard.py into file_scan
+b.	Create a rapper class that I can wrap around either MockFiles RealFiles call SafeFiles Somehow I want to use this as mix in Not sure if Python supports this exactly but basically I want to be able to wrap either of these classes or anything for that matter that has the BaseFiles As it’s progenitor.
+c.	This class overload all of the functions that would modify the disk in any way and use path_guard To see if it has ermissions to set change them.
+d.	I guess we use multiple inheritance so that I can use the signatures of path_guard
+8)	In BaseFiles and its child classes create a function called can_change
+a.	This will take the full pass of a file and return true if the file exists and it has permissions to change it in some way.
+b.	Permissions could be blocked if the file itself read only, if the real file system has its flag set false, For if the safety has marked the file or directory out of bounds.
+9)	Testing SafeFiles
+a.	In mock_files_system Create a test to ensure that the safety system is working correctly This should use the mock file system
+b.	In file_scan/tests create an additional test which will use it with the real file system. I have created a folder named test_files and a subfolder called forbidden In which we can put some files to test this. I guess you could add a text file to “forbidden”. As it’s not going to be deleted it should be tracked by git. The test itself will have to add a file or two to tests. For added security write one set of tests that uses the check function rather than actually does anything. Create another set of which will actually modify the file system but don’t run this just set it up but such that the main does not call it I will have to look this code over before running it.
+Let me know if you have any questions before you proceed
+
+
+
+
+Create a new class in file_scan that gives the system access to the command line
+
+
+Notes and problems
+App_2
+Copying over another file
+We don’t currently have a method for dealing with cases when somebody wants to copy a file over another file
+General We have a confirmation dialog. The copying mechanism will have different results for each of the files it tries to copy These need to be returned and then later process by a large language model in some way.
+Rescan disk before actions
+Before copying from a directory the system should scan the disk again. It should also scan it a second time to verify actions We’ll need a special verification procedure as well
+Inconsistency
+"Show me all the files in C:/Music/Beatles"
+Produces a different result than
+"list all the files in C:/Music/Beatles"
+Testing display action
+There are huge amounts of boilerplate in test_query_display.py Should be eliminated and many more tests created. We need to find methods for analyzing the returned responses that Can be easily specified in a simple test function.
+Unnecessary display of path
+Path is being unnecessarily listed.
+Large scale responses
+There will be cases where a large number of files need to be displayed to the user. Sometimes rather than assing them to the large language model directly and having it display them in plain text it might be best if it generated a table or if it produced a link the user could click on to see the list of things. maybe there would be cases were the System would respond with some natural language and pull up a few windows saying for instance the following files are already in the destination directory do you want me to copy over them. This could be further complicated by all the details of the files themselves the user potentially the option name the new copies in some way or even put them in a new sub directory etc.
+Create a wrapper file systems that uses blacklist white list safety system.
+Create a wrapper for the real file system that is interchangeable with the virtual file system they should have a base class and it should be passed around by this base class.
+
