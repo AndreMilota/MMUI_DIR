@@ -1,4 +1,5 @@
-# Virtual environment
+nul
+ Virtual environment
 .venv/
 
 # PyCharm / IDE files
@@ -17,3 +18,10 @@ file_scan/directories.tsv
 file_scan/files.tsv
 file_scan/tests/junk_sanity.txt
 file_scan/volumes.tsv
+directories.tsv
+files.tsv
+volumes.tsv
+*.sqlite
+
+ app_2/graph_diagram.mmd
+ app_2/graph_diagram.png
