@@ -34,6 +34,8 @@ DB_PATH = locate_db()
 
 def text_to_sql(state: State) -> State:
     user_text = state.get("user_text", "")
+    now_ns = state.get("now_ns")
+    now_iso = state.get("now_iso")
     now_ns, now_iso = state["now_ns"], state["now_iso"]
 
     bounds = compute_time_boundaries(now_ns)
@@ -58,12 +60,24 @@ When the user says phrases like "this week", "last week", "this month", or "toda
 - Example for "today": `WHERE presence_state = 0 AND mtime_ns >= {bounds['start_of_day_ns']} AND mtime_ns < {bounds['start_of_next_day_ns']}`.
 
 When converting relative durations (e.g. "older than 7 days"), you may use arithmetic with `now_ns` (provided above).
+Current time (ISO): {now_iso}
+Current time (nanoseconds since epoch): {now_ns}
+
 {LLM_DB_SCHEMA_DOC}
 
 Your task:
 1. Read the user's natural language query
 2. Generate a valid SQLite query that answers their question
 3. Return ONLY the SQL query, nothing else - no explanations, no markdown, no extra text
+
+Important:
+- Use proper JOINs between files, directories, and volumes tables
+- Full file paths are: directories.dir_path || '/' || files.name || '.' || files.extension
+- Filter for presence_state = 0 (PRESENT files) unless user asks for historical data
+- NEVER use strftime('%s','now') or date('now') — always use the literal now_ns value above for time arithmetic
+- ctime_ns is creation time; mtime_ns is last-modification time. When the user says "created", "added", or "old" use ctime_ns. When the user says "modified" or "changed" use mtime_ns
+- For relative time calculations, compare directly against nanosecond values. For example "older than 7 days" means ctime_ns < {now_ns} - 7*86400*1000000000
+- Be careful with NULL values in optional fields
 """
     user_prompt = f"Generate SQL for this query: {user_text}"
 
@@ -85,7 +99,7 @@ def execute_sql(state: State) -> State:
         return state
 
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(state.get("db_path") or DB_PATH)
         conn.row_factory = sqlite3.Row  # Return rows as dictionaries
         cursor = conn.cursor()
 

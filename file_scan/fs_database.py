@@ -467,7 +467,7 @@ class FSDatabase:
         row = cur.fetchone()
         return int(row["id"])
 
-    def begin_directory_scan(self, directory_id: int) -> None:
+    def begin_directory_scan(self, directory_id: int, scan_started_ns: Optional[int] = None) -> None:
         cur = self.conn.cursor()
         cur.execute(
             """
@@ -477,9 +477,18 @@ class FSDatabase:
             """,
             (directory_id,),
         )
+        if scan_started_ns is not None:
+            cur.execute(
+                """
+                UPDATE directories
+                SET last_scan_started_ns = ?
+                WHERE id = ?;
+                """,
+                (scan_started_ns, directory_id),
+            )
         self.conn.commit()
 
-    def end_directory_scan(self, directory_id: int, completed: bool = True) -> None:
+    def end_directory_scan(self, directory_id: int, completed: bool = True, scan_completed_ns: Optional[int] = None) -> None:
         cur = self.conn.cursor()
         if completed:
             cur.execute(
@@ -490,6 +499,15 @@ class FSDatabase:
                   AND presence_state = 1;
                 """,
                 (directory_id,),
+            )
+        if scan_completed_ns is not None:
+            cur.execute(
+                """
+                UPDATE directories
+                SET last_scan_completed_ns = ?
+                WHERE id = ?;
+                """,
+                (scan_completed_ns, directory_id),
             )
         self.conn.commit()
 
