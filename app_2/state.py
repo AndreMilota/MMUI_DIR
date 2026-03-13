@@ -10,6 +10,7 @@ This module defines:
 from enum import Enum
 from typing import TypedDict, Optional, List, Dict, Any
 from pydantic import BaseModel, Field
+from file_scan.base_files import BaseFiles
 
 
 class ActionType(str, Enum):
@@ -79,7 +80,7 @@ class GraphState(TypedDict, total=False):
 
     # Filesystem (MockFiles for testing, or real filesystem adapter in production)
     # TODO: Integrate PathGuard before enabling real filesystem operations
-    file_system: Optional[Any]                   # Filesystem instance (MockFiles or real adapter)
+    file_system: Optional[BaseFiles]             # Filesystem instance (MockFiles, RealFiles, SafeFiles)
     use_real_fs: bool                            # If True, use real filesystem (DANGEROUS - requires PathGuard)
 
     # Classification output

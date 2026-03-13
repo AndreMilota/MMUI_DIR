@@ -9,13 +9,14 @@ import time
 from app_2.graph import build_app
 from app.utills.time_utils import parse_human_time, now_ns_and_iso_from_dt
 from app.utils.clipboard import print_copy
+from file_scan.base_files import BaseFiles
 
 
 def run_query(
     user_input: str,
     now: Optional[str] = None,
     db_path: Optional[str] = None,
-    file_system: Optional[Any] = None,
+    file_system: Optional[BaseFiles] = None,
 ) -> Dict[str, Any]:
     """
     Run a natural language query through the branching workflow.

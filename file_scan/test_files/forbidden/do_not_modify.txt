@@ -1,0 +1,2 @@
+This file is used for testing SafeFiles path restrictions.
+It should NOT be modifiable when PathGuard denies access to the forbidden directory.

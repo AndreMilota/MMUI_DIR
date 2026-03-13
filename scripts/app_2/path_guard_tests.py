@@ -1,5 +1,9 @@
 # Tests for the PathGuard class
-from app_2.path_guard import PathGuard
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from file_scan.path_guard import PathGuard
 
 
 def test_default_deny():

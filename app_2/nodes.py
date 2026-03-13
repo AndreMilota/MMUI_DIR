@@ -24,6 +24,7 @@ from app_2.state import GraphState, ExecutionPlan, ActionType
 from app.llm.core import chat, chat_json, extract_json_block
 from app.utils.clipboard import print_copy
 from file_scan.fs_database import LLM_DB_SCHEMA_DOC
+from file_scan.base_files import BaseFiles
 from file_scan.mock_file_system.mock_files import MockFiles
 
 

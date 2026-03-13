@@ -26,9 +26,11 @@ import fnmatch
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from ..fs_database import FSDatabase
+from ..base_files import BaseFiles
 from .file_record_builder import FileRecordBuilder
 
-class MockFiles:
+
+class MockFiles(BaseFiles):
     ONE_SECOND_NS = 1_000_000_000
 
     def __init__(self, db_path):
@@ -1166,9 +1168,6 @@ class MockFiles:
         self._advance_time()
         return True
 
-    # Alias for delete
-    rm = delete
-
     def set_attributes(self, path: str, **kwargs) -> bool:
         """
         Modify attributes of an existing file.
@@ -1655,3 +1654,32 @@ class MockFiles:
 
         self._advance_time()
         return count
+
+    # =========================================================================
+    # Permission Check Operations
+    # =========================================================================
+
+    def can_change(self, path: str) -> bool:
+        """
+        Check if a file can be modified.
+
+        For MockFiles, this checks:
+        - File exists
+        - File is not read-only
+
+        Args:
+            path: Full path to the file to check
+
+        Returns:
+            bool: True if the file exists and can be modified, False otherwise
+        """
+        file_record = self.get_file(path)
+
+        if file_record is None:
+            return False
+
+        # Check read-only attribute
+        if file_record.get('readonly', 0):
+            return False
+
+        return True

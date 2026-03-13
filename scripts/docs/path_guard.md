@@ -22,7 +22,7 @@ Rules are evaluated in order. The last matching rule wins.
 ## Basic Usage
 
 ```python
-from app_2.path_guard import PathGuard
+from file_scan.path_guard import PathGuard
 
 pg = PathGuard()
 
